@@ -6,7 +6,8 @@
   **M3** — havens (private refs via HavenPrefix/Private), `hv publish` with fast-forward-only divergence refusal, `IsAncestor` commit walk. Havens never appear in branch list. Tests + vet green.
   **M4** — `internal/merge` (three-way content merge via `diff.Chunks`, git-style conflict markers; tree merge), `MergeBase` (LCA), `hv merge` (fast-forward, clean 3-way commit, conflict-to-working-tree), exact-content rename detection in diff. Tests + vet green.
   **M5** — `internal/protocol` (HTTP server+client), `internal/remote`, object reachability/transfer; `serve`, `remote`, `push` (refuses private), `fetch`, `pull`, `clone`, `sync` (carries havens to personal remotes). Team server also refuses private refs. Full VCS with remotes — DoD 1-7 demonstrated. Tests + vet green.
-- **Next:** M6 hardening (fsck/gc/locking/perf), then M7 identity/access, M8 secrets.
+  **M7/M8 (core)** — `internal/identity` (age X25519 keypair, off-repo private key), `internal/secret` (age encrypt/decrypt, glob marks, members/recipients). Commands: `key gen/show`, `member add/list`, `secret add/list`. Secret files auto-encrypted on `add` (default marks seeded at init), addressed by plaintext hash (stable, no churn), stored as ciphertext; decrypt on checkout for recipients, locked marker otherwise. Ciphertext stays opaque through push/clone (server never sees plaintext). Tests + vet green.
+- **Next:** M6 hardening (fsck/gc/locking); M7-full signed-policy ACL + ref-scoped recipients + groups + signed-challenge auth (currently recipients = repo keyring, not yet ref-scoped/signed).
 - **Blocked:** nothing.
 
 ## Key Decisions

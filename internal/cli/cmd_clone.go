@@ -83,7 +83,7 @@ func runClone(args []string, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err := workspace.Checkout(r.Root, store, "", tree); err != nil {
+		if err := workspace.Checkout(r.Root, store, "", tree, currentIdentity()); err != nil {
 			return err
 		}
 		if err := resetStaging(r, store, tree); err != nil {

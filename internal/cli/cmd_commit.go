@@ -41,18 +41,22 @@ func runCommit(args []string, out, errOut io.Writer) error {
 		return fmt.Errorf("nothing staged (use 'hv add')")
 	}
 
-	// Modes come from the current working tree; default to a regular file.
-	scan, err := workspace.Scan(r.Root)
+	// Modes and secret classification come from the current working tree.
+	marks, err := marksOf(r)
+	if err != nil {
+		return err
+	}
+	scan, err := workspace.Scan(r.Root, marks)
 	if err != nil {
 		return err
 	}
 	files := make(map[string]object.FileEntry, len(staged))
 	for path, h := range staged {
-		mode := object.ModeFile
+		mode, typ := object.ModeFile, object.Blob
 		if fe, ok := scan[path]; ok {
-			mode = fe.Mode
+			mode, typ = fe.Mode, fe.Type
 		}
-		files[path] = object.FileEntry{Hash: h, Mode: mode}
+		files[path] = object.FileEntry{Hash: h, Mode: mode, Type: typ}
 	}
 
 	treeHash, err := object.BuildTree(store, files)

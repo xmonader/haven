@@ -6,12 +6,24 @@ import (
 	"path/filepath"
 
 	"haven/internal/hash"
+	"haven/internal/identity"
 	"haven/internal/index"
 	"haven/internal/object"
 	"haven/internal/ref"
 	"haven/internal/repo"
+	"haven/internal/secret"
 	"haven/internal/workspace"
 )
+
+// marksOf loads the repository's secret path globs.
+func marksOf(r *repo.Repo) ([]string, error) {
+	return secret.Marks(r.DB)
+}
+
+// currentIdentity loads the user's identity, or nil if none exists.
+func currentIdentity() *identity.Identity {
+	return identity.LoadOrNil()
+}
 
 // openRepo opens the repository containing the current directory and returns
 // it along with an object store.
@@ -39,7 +51,11 @@ func switchTo(r *repo.Repo, store *object.Store, targetRef string) error {
 	if err != nil {
 		return err
 	}
-	clean, err := workspace.IsClean(r.Root, store, headTree)
+	marks, err := marksOf(r)
+	if err != nil {
+		return err
+	}
+	clean, err := workspace.IsClean(r.Root, store, headTree, marks)
 	if err != nil {
 		return err
 	}
@@ -55,7 +71,7 @@ func switchTo(r *repo.Repo, store *object.Store, targetRef string) error {
 	if err != nil {
 		return err
 	}
-	if err := workspace.Checkout(r.Root, store, headTree, targetTree); err != nil {
+	if err := workspace.Checkout(r.Root, store, headTree, targetTree, currentIdentity()); err != nil {
 		return err
 	}
 	if err := r.SetHead(targetRef); err != nil {
@@ -95,15 +111,25 @@ func resolveTree(r *repo.Repo, store *object.Store, spec string) (string, error)
 	return store.TreeOfCommit(commit)
 }
 
-// workingTree snapshots the current working tree into objects (storing blobs)
-// and returns its root tree hash, without creating a commit.
+// workingTree snapshots the current working tree into objects and returns its
+// root tree hash, without creating a commit. Plain files are stored as blobs;
+// secret files keep the identity hash from the scan (their ciphertext object is
+// expected to already exist from a prior add/commit).
 func workingTree(r *repo.Repo, store *object.Store) (string, error) {
-	scan, err := workspace.Scan(r.Root)
+	marks, err := marksOf(r)
+	if err != nil {
+		return "", err
+	}
+	scan, err := workspace.Scan(r.Root, marks)
 	if err != nil {
 		return "", err
 	}
 	files := make(map[string]object.FileEntry, len(scan))
 	for path, fe := range scan {
+		if fe.Type == object.Secret {
+			files[path] = fe // identity hash; ciphertext object already stored
+			continue
+		}
 		content, err := os.ReadFile(filepath.Join(r.Root, filepath.FromSlash(path)))
 		if err != nil {
 			return "", err
@@ -112,7 +138,7 @@ func workingTree(r *repo.Repo, store *object.Store) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		files[path] = object.FileEntry{Hash: h, Mode: fe.Mode}
+		files[path] = object.FileEntry{Hash: h, Mode: fe.Mode, Type: object.Blob}
 	}
 	return object.BuildTree(store, files)
 }

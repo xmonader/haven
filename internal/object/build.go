@@ -1,15 +1,15 @@
 package object
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 )
 
 // FileEntry describes a file to place in a tree.
 type FileEntry struct {
-	Hash string // blob hash
+	Hash string // object hash
 	Mode string // ModeFile or ModeExec
+	Type Type   // Blob (default) or Secret
 }
 
 // BuildTree constructs nested tree objects from a flat map of forward-slash
@@ -40,8 +40,12 @@ func buildSubtree(s *Store, files map[string]FileEntry, prefix string) (string, 
 			}
 			sd.paths[path] = fe
 		} else {
+			t := fe.Type
+			if t == "" {
+				t = Blob
+			}
 			entries = append(entries, TreeEntry{
-				Mode: fe.Mode, Type: Blob, Hash: fe.Hash, Name: rest,
+				Mode: fe.Mode, Type: t, Hash: fe.Hash, Name: rest,
 			})
 		}
 	}
@@ -95,14 +99,12 @@ func flattenFull(s *Store, treeHash, prefix string, out map[string]FileEntry) er
 	}
 	for _, e := range entries {
 		switch e.Type {
-		case Blob:
-			out[prefix+e.Name] = FileEntry{Hash: e.Hash, Mode: e.Mode}
 		case Tree:
 			if err := flattenFull(s, e.Hash, prefix+e.Name+"/", out); err != nil {
 				return err
 			}
-		default:
-			return fmt.Errorf("unexpected tree entry type %q", e.Type)
+		default: // Blob or Secret: a leaf
+			out[prefix+e.Name] = FileEntry{Hash: e.Hash, Mode: e.Mode, Type: e.Type}
 		}
 	}
 	return nil
@@ -115,14 +117,12 @@ func flatten(s *Store, treeHash, prefix string, out map[string]string) error {
 	}
 	for _, e := range entries {
 		switch e.Type {
-		case Blob:
-			out[prefix+e.Name] = e.Hash
 		case Tree:
 			if err := flatten(s, e.Hash, prefix+e.Name+"/", out); err != nil {
 				return err
 			}
-		default:
-			return fmt.Errorf("unexpected tree entry type %q", e.Type)
+		default: // Blob or Secret: a leaf
+			out[prefix+e.Name] = e.Hash
 		}
 	}
 	return nil

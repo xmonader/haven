@@ -7,8 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"haven/internal/hash"
 	"haven/internal/index"
 	"haven/internal/object"
+	"haven/internal/repo"
+	"haven/internal/secret"
 	"haven/internal/workspace"
 )
 
@@ -28,12 +31,16 @@ func runAdd(args []string, out, errOut io.Writer) error {
 	}
 	defer r.Close()
 
-	scan, err := workspace.Scan(r.Root)
+	marks, err := marksOf(r)
+	if err != nil {
+		return err
+	}
+	scan, err := workspace.Scan(r.Root, marks)
 	if err != nil {
 		return err
 	}
 
-	staged := 0
+	staged, encrypted := 0, 0
 	for _, arg := range args {
 		matches, err := selectPaths(r.Root, arg, scan)
 		if err != nil {
@@ -47,7 +54,7 @@ func runAdd(args []string, out, errOut io.Writer) error {
 			if err != nil {
 				return err
 			}
-			h, err := store.Put(object.Blob, content)
+			h, isSecret, err := storeFile(r, store, rel, content, marks)
 			if err != nil {
 				return err
 			}
@@ -55,10 +62,42 @@ func runAdd(args []string, out, errOut io.Writer) error {
 				return err
 			}
 			staged++
+			if isSecret {
+				encrypted++
+			}
 		}
 	}
-	fmt.Fprintf(out, "staged %d file(s)\n", staged)
+	if encrypted > 0 {
+		fmt.Fprintf(out, "staged %d file(s) (%d encrypted)\n", staged, encrypted)
+	} else {
+		fmt.Fprintf(out, "staged %d file(s)\n", staged)
+	}
 	return nil
+}
+
+// storeFile stores a working file as the right object kind: an encrypted Secret
+// (addressed by plaintext hash) if it matches a mark, otherwise a plain blob.
+func storeFile(r *repo.Repo, store *object.Store, rel string, content []byte, marks []string) (string, bool, error) {
+	if !secret.Match(rel, marks) {
+		h, err := store.Put(object.Blob, content)
+		return h, false, err
+	}
+	recips, err := secret.Recipients(r.DB)
+	if err != nil {
+		return "", false, err
+	}
+	if len(recips) == 0 {
+		return "", false, fmt.Errorf("%s is a secret but there are no recipients; run 'hv key gen'", rel)
+	}
+	ciphertext, err := secret.Encrypt(content, recips)
+	if err != nil {
+		return "", false, err
+	}
+	h := hash.Of(string(object.Secret), content)
+	if err := store.PutRaw(h, object.Secret, ciphertext); err != nil {
+		return "", false, err
+	}
+	return h, true, nil
 }
 
 // selectPaths resolves a CLI argument to a set of relative tracked paths,

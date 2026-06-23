@@ -4,13 +4,20 @@ import (
 	"os"
 	"path/filepath"
 
+	"haven/internal/identity"
 	"haven/internal/object"
+	"haven/internal/secret"
 )
+
+// lockedNotice is written in place of a secret file the current user cannot
+// decrypt (they are not a recipient).
+const lockedNotice = "<haven: encrypted secret; you are not a recipient>\n"
 
 // Checkout makes the working tree match newTree. Files present in oldTree but
 // not in newTree are removed; files in newTree are written with their stored
-// mode. Untracked files (in neither tree) are left untouched.
-func Checkout(root string, store *object.Store, oldTree, newTree string) error {
+// mode. Secret entries are decrypted with id (nil = not a recipient, written as
+// a locked notice). Untracked files are left untouched.
+func Checkout(root string, store *object.Store, oldTree, newTree string, id *identity.Identity) error {
 	oldFiles, err := object.FlattenFull(store, oldTree)
 	if err != nil {
 		return err
@@ -33,9 +40,13 @@ func Checkout(root string, store *object.Store, oldTree, newTree string) error {
 
 	// Write the new tree's files.
 	for path, fe := range newFiles {
-		_, content, err := store.Get(fe.Hash)
+		_, stored, err := store.Get(fe.Hash)
 		if err != nil {
 			return err
+		}
+		content := stored
+		if fe.Type == object.Secret {
+			content = decryptOrLock(stored, id)
 		}
 		full := filepath.Join(root, filepath.FromSlash(path))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -52,6 +63,19 @@ func Checkout(root string, store *object.Store, oldTree, newTree string) error {
 	return nil
 }
 
+// decryptOrLock returns the plaintext if id can decrypt the ciphertext,
+// otherwise a locked notice.
+func decryptOrLock(ciphertext []byte, id *identity.Identity) []byte {
+	if id == nil {
+		return []byte(lockedNotice)
+	}
+	plain, err := secret.Decrypt(ciphertext, id.X25519)
+	if err != nil {
+		return []byte(lockedNotice)
+	}
+	return plain
+}
+
 // removeEmptyParents deletes now-empty parent directories up to (not including)
 // root.
 func removeEmptyParents(root, full string) {
@@ -64,14 +88,14 @@ func removeEmptyParents(root, full string) {
 	}
 }
 
-// CleanState describes whether tracked files in the working tree differ from a
-// reference tree.
-func IsClean(root string, store *object.Store, treeHash string) (bool, error) {
+// IsClean reports whether tracked files in the working tree match a reference
+// tree (untracked files are ignored). marks classify secret files for hashing.
+func IsClean(root string, store *object.Store, treeHash string, marks []string) (bool, error) {
 	tracked, err := object.Flatten(store, treeHash)
 	if err != nil {
 		return false, err
 	}
-	work, err := Scan(root)
+	work, err := Scan(root, marks)
 	if err != nil {
 		return false, err
 	}

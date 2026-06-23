@@ -104,6 +104,17 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	// Secret objects are addressed by their plaintext hash but carry ciphertext
+	// the server cannot read, so their hash cannot be recomputed here — store as
+	// given. All other objects are verified against their content.
+	if object.Type(typ) == object.Secret {
+		if err := s.store.PutRaw(hash, object.Secret, content); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	got, err := s.store.Put(object.Type(typ), content)
 	if err != nil {
 		http.Error(w, err.Error(), 500)

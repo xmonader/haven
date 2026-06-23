@@ -44,7 +44,11 @@ func runStatus(args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	working, err := workspace.Scan(r.Root)
+	marks, err := marksOf(r)
+	if err != nil {
+		return err
+	}
+	working, err := workspace.Scan(r.Root, marks)
 	if err != nil {
 		return err
 	}

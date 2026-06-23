@@ -11,12 +11,15 @@ import (
 	"haven/internal/hash"
 	"haven/internal/object"
 	"haven/internal/repo"
+	"haven/internal/secret"
 )
 
-// Scan walks the working tree rooted at root and returns a map of
-// forward-slash relative paths to file entries (blob hash + mode). The .haven
-// directory is skipped. Hashes are computed in memory; nothing is stored.
-func Scan(root string) (map[string]object.FileEntry, error) {
+// Scan walks the working tree rooted at root and returns a map of forward-slash
+// relative paths to file entries (object hash, mode, type). Files matching a
+// secret mark get type Secret and an identity hash over their plaintext (stable
+// across re-encryption); others are plain blobs. The .haven directory is
+// skipped. Hashes are computed in memory; nothing is stored or encrypted here.
+func Scan(root string, marks []string) (map[string]object.FileEntry, error) {
 	out := map[string]object.FileEntry{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -41,9 +44,14 @@ func Scan(root string) (map[string]object.FileEntry, error) {
 		if err != nil {
 			return err
 		}
+		typ := object.Blob
+		if secret.Match(rel, marks) {
+			typ = object.Secret
+		}
 		out[rel] = object.FileEntry{
-			Hash: hash.Of(string(object.Blob), content),
+			Hash: hash.Of(string(typ), content),
 			Mode: modeFor(d),
+			Type: typ,
 		}
 		return nil
 	})

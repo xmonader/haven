@@ -56,6 +56,10 @@ func runDiff(args []string, out, errOut io.Writer) error {
 			continue
 		}
 		fmt.Fprintf(out, "diff %s %s\n", c.Kind, c.Path)
+		if isSecretObject(store, c.Old) || isSecretObject(store, c.New) {
+			fmt.Fprintln(out, "  (encrypted secret; contents not shown)")
+			continue
+		}
 		oldContent := contentOf(store, c.Old)
 		newContent := contentOf(store, c.New)
 		ud := diff.Unified("a/"+c.Path, "b/"+c.Path, oldContent, newContent)
@@ -77,4 +81,13 @@ func contentOf(store *object.Store, h string) []byte {
 		return nil
 	}
 	return content
+}
+
+// isSecretObject reports whether a hash names a stored Secret object.
+func isSecretObject(store *object.Store, h string) bool {
+	if h == "" {
+		return false
+	}
+	typ, _, err := store.Get(h)
+	return err == nil && typ == object.Secret
 }

@@ -69,7 +69,7 @@ func mergeInto(r *repo.Repo, store *object.Store, theirs, label string, out io.W
 		if err != nil {
 			return err
 		}
-		if err := workspace.Checkout(r.Root, store, "", theirTree); err != nil {
+		if err := workspace.Checkout(r.Root, store, "", theirTree, currentIdentity()); err != nil {
 			return err
 		}
 		if err := ref.Set(r.DB, headRef, theirs); err != nil {
@@ -86,7 +86,11 @@ func mergeInto(r *repo.Repo, store *object.Store, theirs, label string, out io.W
 	if err != nil {
 		return err
 	}
-	if clean, err := workspace.IsClean(r.Root, store, ourTree); err != nil {
+	marks, err := marksOf(r)
+	if err != nil {
+		return err
+	}
+	if clean, err := workspace.IsClean(r.Root, store, ourTree, marks); err != nil {
 		return err
 	} else if !clean {
 		return fmt.Errorf("working tree has uncommitted changes; commit or discard first")
@@ -108,7 +112,7 @@ func mergeInto(r *repo.Repo, store *object.Store, theirs, label string, out io.W
 
 	// Fast-forward: our tip is the merge base.
 	if base == ours {
-		if err := workspace.Checkout(r.Root, store, ourTree, theirTree); err != nil {
+		if err := workspace.Checkout(r.Root, store, ourTree, theirTree, currentIdentity()); err != nil {
 			return err
 		}
 		if err := ref.Set(r.DB, headRef, theirs); err != nil {
@@ -134,7 +138,7 @@ func mergeInto(r *repo.Repo, store *object.Store, theirs, label string, out io.W
 	if err != nil {
 		return err
 	}
-	if err := workspace.Checkout(r.Root, store, ourTree, mergedTree); err != nil {
+	if err := workspace.Checkout(r.Root, store, ourTree, mergedTree, currentIdentity()); err != nil {
 		return err
 	}
 	if err := resetStaging(r, store, mergedTree); err != nil {

@@ -48,6 +48,15 @@ CREATE TABLE IF NOT EXISTS secret_manifest (
 	policy_version INTEGER NOT NULL,
 	PRIMARY KEY (ref, name)
 );
+
+CREATE TABLE IF NOT EXISTS members (
+	name      TEXT PRIMARY KEY,   -- actor id
+	recipient TEXT NOT NULL       -- age public recipient ("age1...")
+);
+
+CREATE TABLE IF NOT EXISTS secret_paths (
+	glob TEXT PRIMARY KEY
+);
 `
 
 // Open opens (creating if needed) the SQLite database at path and ensures the

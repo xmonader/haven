@@ -16,6 +16,10 @@ const (
 	Blob   Type = "blob"
 	Tree   Type = "tree"
 	Commit Type = "commit"
+	// Secret is an age-encrypted file. Its store hash is computed over the
+	// PLAINTEXT (so its identity is stable across re-encryption), while the
+	// stored content is ciphertext the server can never read.
+	Secret Type = "secret"
 )
 
 // Store reads and writes objects to the database.
@@ -38,6 +42,21 @@ func (s *Store) Put(t Type, payload []byte) (string, error) {
 		return "", fmt.Errorf("put %s %s: %w", t, h, err)
 	}
 	return h, nil
+}
+
+// PutRaw stores content under a caller-supplied hash without recomputing it.
+// Used for Secret objects (whose hash is over plaintext, not the stored
+// ciphertext) and for receiving such objects over the wire, where the verifier
+// cannot recompute the hash. Idempotent.
+func (s *Store) PutRaw(hash string, t Type, content []byte) error {
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO objects(hash, type, size, content) VALUES(?,?,?,?)`,
+		hash, string(t), len(content), content,
+	)
+	if err != nil {
+		return fmt.Errorf("put raw %s %s: %w", t, hash, err)
+	}
+	return nil
 }
 
 // Get returns the type and payload of an object.

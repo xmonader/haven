@@ -74,7 +74,13 @@ func downloadReachable(c *protocol.Client, store *object.Store, target string) e
 		if err != nil {
 			return err
 		}
-		if _, err := store.Put(typ, content); err != nil {
+		// Secret objects are addressed by plaintext hash; store under the given
+		// hash without recomputing (we hold only ciphertext).
+		if typ == object.Secret {
+			if err := store.PutRaw(h, typ, content); err != nil {
+				return err
+			}
+		} else if _, err := store.Put(typ, content); err != nil {
 			return err
 		}
 		switch typ {
