@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"haven/internal/object"
@@ -21,11 +22,21 @@ type Server struct {
 	db    *sql.DB
 	store *object.Store
 	kind  string
+
+	mu    sync.Mutex
+	gen   uint64                // bumped on every ref change
+	cache map[string]reachEntry // actor -> reachable object set
+}
+
+// reachEntry caches the set of objects an actor may fetch, valid for one gen.
+type reachEntry struct {
+	gen  uint64
+	objs map[string]bool
 }
 
 // NewServer builds a server over an open database.
 func NewServer(db *sql.DB, kind string) *Server {
-	return &Server{db: db, store: object.NewStore(db), kind: kind}
+	return &Server{db: db, store: object.NewStore(db), kind: kind, cache: map[string]reachEntry{}}
 }
 
 // Handler returns the HTTP routes.
@@ -141,6 +152,9 @@ func (s *Server) postRefs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	s.mu.Lock()
+	s.gen++ // invalidate cached reachability
+	s.mu.Unlock()
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -212,26 +226,48 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 }
 
 // readableObject reports whether actor may fetch an object: it must be
-// reachable from a ref the actor can read, or be part of the policy chain.
+// reachable from a ref the actor can read, or be part of the policy chain. The
+// reachable set is computed once per actor and reused until a ref change bumps
+// the generation, so a clone fetching N objects walks the graph once, not N
+// times.
 func (s *Server) readableObject(p *policy.Policy, actor, hash string) bool {
-	chain, _ := policy.ChainHashes(s.db, s.store)
-	if chain[hash] {
-		return true
+	return s.reachableSet(p, actor)[hash]
+}
+
+func (s *Server) reachableSet(p *policy.Policy, actor string) map[string]bool {
+	s.mu.Lock()
+	if e, ok := s.cache[actor]; ok && e.gen == s.gen {
+		objs := e.objs
+		s.mu.Unlock()
+		return objs
+	}
+	gen := s.gen
+	s.mu.Unlock()
+
+	objs := map[string]bool{}
+	if chain, err := policy.ChainHashes(s.db, s.store); err == nil {
+		for h := range chain {
+			objs[h] = true
+		}
 	}
 	refs, _ := ref.List(s.db)
 	for _, rf := range refs {
 		if rf.Target == "" || rf.Visibility == ref.Policy || !canRead(p, actor, rf.Name) {
 			continue
 		}
-		objs, err := s.store.Reachable(rf.Target)
+		reach, err := s.store.Reachable(rf.Target)
 		if err != nil {
 			continue
 		}
-		if objs[hash] {
-			return true
+		for h := range reach {
+			objs[h] = true
 		}
 	}
-	return false
+
+	s.mu.Lock()
+	s.cache[actor] = reachEntry{gen: gen, objs: objs}
+	s.mu.Unlock()
+	return objs
 }
 
 // canRead reports whether actor may read a ref. The policy ref is always
