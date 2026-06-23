@@ -193,3 +193,17 @@ Edit, `hv add` the resolved files, then `hv commit`. `rebase` is all-or-nothing:
 | Maintenance | `fsck` `gc` |
 
 Run `hv help` for the full list.
+
+---
+
+## Known limitations
+
+Haven is solid for solo and small-trusted-team use. Be aware of these by-design or not-yet boundaries:
+
+- **Storage doesn't pack/delta.** Every object is stored whole in SQLite and loaded into memory per operation. Great for source trees; not suited to very large repos or large binary files.
+- **Unix only.** The working-copy lock uses `flock(2)`; Windows is unsupported.
+- **Shared-plaintext secrets across refs.** A secret's identity is its plaintext hash, so the *same* secret bytes on two refs share one ciphertext. This keeps merges of a shared `.env` clean, but if two refs need that identical secret encrypted to *different* readers, only one recipient set is stored. It is not a disclosure risk (identical plaintext means identical knowledge); at worst a reader is temporarily locked out until `hv secret rotate`. Use distinct secret values per trust boundary.
+- **Replay nonces are evicted after 5 minutes.** Within that window replay is blocked by a durable nonce table; the window itself is the clock-skew bound.
+- **Single-process server assumptions.** The reachability cache is per-process; the nonce table is shared, but run one `hv serve` per repo.
+
+For multi-writer teams, concurrent ref updates are safe (atomic compare-and-swap) and rotated secrets propagate on push. Run the server behind TLS (or a tunnel) for confidentiality on untrusted networks.
