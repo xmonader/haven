@@ -52,6 +52,7 @@ var registry = []Command{
 	cmdSecret,
 	cmdFsck,
 	cmdGc,
+	cmdVersion,
 }
 
 // Dispatch routes argv (excluding the program name) to a subcommand.
@@ -59,6 +60,10 @@ var registry = []Command{
 func Dispatch(argv []string, out, errOut io.Writer) int {
 	if len(argv) == 0 || argv[0] == "help" || argv[0] == "-h" || argv[0] == "--help" {
 		usage(out)
+		return 0
+	}
+	if argv[0] == "--version" || argv[0] == "-v" {
+		runVersion(nil, out, errOut)
 		return 0
 	}
 	name := argv[0]
