@@ -57,6 +57,7 @@ func NewServer(db *sql.DB, kind string) *Server {
 // Handler returns the HTTP routes.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", s.getHealth)
 	mux.HandleFunc("GET /info", s.getInfo)
 	mux.HandleFunc("GET /refs", s.getRefs)
 	mux.HandleFunc("POST /refs", s.postRefs)
@@ -150,6 +151,18 @@ func (s *Server) acceptNonce(nonce string) bool {
 
 func (s *Server) getInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, Info{DefaultBranch: ref.ShortName(repo.DefaultBranch), ServerKind: s.kind})
+}
+
+// getHealth is an unauthenticated liveness/readiness probe for load balancers
+// and orchestrators. It pings the database so it reports unready if the store is
+// unreachable. It exposes no repository data.
+func (s *Server) getHealth(w http.ResponseWriter, r *http.Request) {
+	if err := s.db.PingContext(r.Context()); err != nil {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte("ok\n"))
 }
 
 func (s *Server) getRefs(w http.ResponseWriter, r *http.Request) {

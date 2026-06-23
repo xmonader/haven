@@ -278,7 +278,14 @@ hv repack                              # delta-compress similar objects, then VA
 
 Plain HTTP(S), debuggable with curl. Auth is a **per-request Ed25519 signature** (no server round-trip, no long-lived secret on the wire): the client signs the canonical string `method\npath\ntime\nsha256(body)\nnonce` with its signing key; the server maps the signing pubkey to an actor via the keyring, rejects a clock skew beyond ±300s, and rejects a nonce it has already seen (durable `seen_nonces` table) so a captured request can't be replayed even within the window. The body hash binds the signature to the payload, so a tampered body invalidates it. Request bodies are capped (`MaxRequestBytes`) so a client can't exhaust server memory. Run behind TLS for confidentiality — the signature prevents forgery, not eavesdropping.
 
+The server sets `ReadHeaderTimeout` (Slowloris defense) and `IdleTimeout`
+(keep-alive reaping); body read/write are left unbounded so large, slow object
+transfers — already size-bounded by the body cap — aren't severed. An
+unauthenticated `GET /healthz` (DB-pinged liveness, exposes no data, excluded
+from the access log) is provided for load balancers and orchestrators.
+
 ```
+GET  /healthz               -> unauthenticated liveness/readiness probe (200 ok)
 GET  /info                  -> repo metadata
 GET  /refs                  -> ref listing, FILTERED to refs the actor can read
 GET  /objects/<hash>        -> raw object bytes, allowed only if reachable from a readable ref

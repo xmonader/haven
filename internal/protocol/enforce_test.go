@@ -404,3 +404,28 @@ func TestOriginEnforcementRejectsForeignHost(t *testing.T) {
 		t.Fatalf("matching origin should be accepted: %v", err)
 	}
 }
+
+// TestHealthEndpointUnauthenticated verifies the liveness probe responds 200
+// without authentication and exposes no repository data.
+func TestHealthEndpointUnauthenticated(t *testing.T) {
+	db, err := store.Open(t.TempDir() + "/t.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	srv := httptest.NewServer(NewServer(db, KindTeam).Handler())
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/healthz status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "ok") {
+		t.Fatalf("/healthz body = %q", body)
+	}
+}

@@ -72,7 +72,17 @@ func runServe(args []string, out, errOut io.Writer) error {
 		server.RequireOrigin(origin)
 		fmt.Fprintf(out, "enforcing request origin %s\n", origin)
 	}
-	srv := &http.Server{Addr: addr, Handler: logRequests(server.Handler(), out)}
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: logRequests(server.Handler(), out),
+		// ReadHeaderTimeout defends against slow-header (Slowloris) clients that
+		// would otherwise hold connections open indefinitely; IdleTimeout reaps
+		// idle keep-alive connections. ReadTimeout/WriteTimeout are intentionally
+		// left unbounded so large, slow object transfers (bounded in size by the
+		// body cap) are not severed mid-stream.
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	// Shut down cleanly on SIGINT/SIGTERM so in-flight requests finish.
 	stop := make(chan os.Signal, 1)
@@ -116,6 +126,12 @@ func (r *statusRecorder) WriteHeader(c int) {
 // duration, and the requester's key prefix (or "anon").
 func logRequests(h http.Handler, out io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Health probes fire continuously from load balancers; logging them would
+		// drown the access log in noise.
+		if req.URL.Path == "/healthz" {
+			h.ServeHTTP(w, req)
+			return
+		}
 		rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
 		start := time.Now()
 		h.ServeHTTP(rec, req)
