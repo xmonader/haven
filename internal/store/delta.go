@@ -18,6 +18,15 @@ import (
 
 const deltaWindow = 16 // min match length considered for a copy
 
+// Bounds for reconstructing a (possibly corrupt or hostile) delta. A bad row
+// must never be able to exhaust memory: targets above maxDeltaTarget are
+// rejected outright, and the output buffer is never preallocated above
+// maxDeltaPrealloc on the untrusted declared length.
+const (
+	maxDeltaTarget   = 1 << 32 // 4 GiB: far above any sane object, well below OOM
+	maxDeltaPrealloc = 1 << 26 // 64 MiB initial capacity hint cap
+)
+
 // makeDelta produces a program that reconstructs target from base.
 func MakeDelta(base, target []byte) []byte {
 	// Index the first offset of every deltaWindow-byte window of base.
@@ -91,8 +100,15 @@ func ApplyDelta(base, delta []byte) ([]byte, error) {
 		return nil, fmt.Errorf("delta: bad target length header")
 	}
 	r = r[n:]
+	if targetLen > maxDeltaTarget {
+		return nil, fmt.Errorf("delta: target length %d exceeds maximum %d", targetLen, maxDeltaTarget)
+	}
+	capHint := targetLen
+	if capHint > maxDeltaPrealloc {
+		capHint = maxDeltaPrealloc
+	}
 
-	out := make([]byte, 0, targetLen)
+	out := make([]byte, 0, capHint)
 	for len(r) > 0 {
 		op := r[0]
 		r = r[1:]
@@ -105,6 +121,9 @@ func ApplyDelta(base, delta []byte) ([]byte, error) {
 			r = r[n:]
 			if uint64(len(r)) < ln {
 				return nil, fmt.Errorf("delta: insert truncated")
+			}
+			if uint64(len(out))+ln > targetLen {
+				return nil, fmt.Errorf("delta: output exceeds declared length")
 			}
 			out = append(out, r[:ln]...)
 			r = r[ln:]
@@ -121,6 +140,9 @@ func ApplyDelta(base, delta []byte) ([]byte, error) {
 			r = r[n:]
 			if off+ln > uint64(len(base)) || off+ln < off {
 				return nil, fmt.Errorf("delta: copy out of range")
+			}
+			if uint64(len(out))+ln > targetLen {
+				return nil, fmt.Errorf("delta: output exceeds declared length")
 			}
 			out = append(out, base[off:off+ln]...)
 		default:
