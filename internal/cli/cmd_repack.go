@@ -94,6 +94,14 @@ func runRepack(args []string, out, errOut io.Writer) error {
 		}
 	}
 
+	// Rewrites shrink rows in place; VACUUM returns the freed pages to the OS so
+	// the on-disk file actually gets smaller (like the compaction step of git gc).
+	if deltified > 0 {
+		if _, err := r.DB.Exec(`VACUUM`); err != nil {
+			return fmt.Errorf("repack: vacuum: %w", err)
+		}
+	}
+
 	fmt.Fprintf(out, "repacked %d object(s), reclaimed %d bytes; %d candidate(s) left whole\n",
 		deltified, reclaimed, len(cands)-deltified)
 	return nil
