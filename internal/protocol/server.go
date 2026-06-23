@@ -26,6 +26,7 @@ type Server struct {
 	mu    sync.Mutex
 	gen   uint64                // bumped on every ref change
 	cache map[string]reachEntry // actor -> reachable object set
+	seen  map[string]int64      // accepted nonce -> client unix time (anti-replay)
 }
 
 // reachEntry caches the set of objects an actor may fetch, valid for one gen.
@@ -36,7 +37,7 @@ type reachEntry struct {
 
 // NewServer builds a server over an open database.
 func NewServer(db *sql.DB, kind string) *Server {
-	return &Server{db: db, store: object.NewStore(db), kind: kind, cache: map[string]reachEntry{}}
+	return &Server{db: db, store: object.NewStore(db), kind: kind, cache: map[string]reachEntry{}, seen: map[string]int64{}}
 }
 
 // Handler returns the HTTP routes.
@@ -63,6 +64,7 @@ func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, bod
 	pub := r.Header.Get(HdrPub)
 	ts := r.Header.Get(HdrTime)
 	sigHex := r.Header.Get(HdrSig)
+	nonce := r.Header.Get(HdrNonce)
 	if pub == "" && ts == "" && sigHex == "" {
 		return "", body, true // anonymous: public access only
 	}
@@ -74,9 +76,15 @@ func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, bod
 	if err != nil || len(pubBytes) != ed25519.PublicKeySize {
 		return "", body, false
 	}
-	sig, err := hex.DecodeString(sigHex)
-	if err != nil || !ed25519.Verify(pubBytes, canonicalRequest(r.Method, r.URL.Path, ts, bodyHash(body)), sig) {
+	if nonce == "" {
 		return "", body, false
+	}
+	sig, err := hex.DecodeString(sigHex)
+	if err != nil || !ed25519.Verify(pubBytes, canonicalRequest(r.Method, r.URL.Path, ts, bodyHash(body), nonce), sig) {
+		return "", body, false
+	}
+	if !s.acceptNonce(nonce, tsec) {
+		return "", body, false // replay of an already-seen request
 	}
 	for name, m := range p.Keyring {
 		if m.Sign == pub && m.Status != "revoked" {
@@ -84,6 +92,25 @@ func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, bod
 		}
 	}
 	return "", body, false // signed by an unknown/revoked key
+}
+
+// acceptNonce records a freshly-seen nonce and reports whether it was new. It
+// also evicts nonces older than the skew window (those would fail the time
+// check anyway, so they need no replay protection).
+func (s *Server) acceptNonce(nonce string, tsec int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := time.Now().Unix() - MaxSkewSeconds
+	for n, seenAt := range s.seen {
+		if seenAt < cutoff {
+			delete(s.seen, n)
+		}
+	}
+	if _, dup := s.seen[nonce]; dup {
+		return false
+	}
+	s.seen[nonce] = tsec
+	return true
 }
 
 func (s *Server) getInfo(w http.ResponseWriter, r *http.Request) {

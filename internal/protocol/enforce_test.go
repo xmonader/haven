@@ -96,6 +96,49 @@ func TestTamperedBodyRejected(t *testing.T) {
 	}
 }
 
+// captureTransport records the exact bytes/headers of the first request it
+// sees so the test can replay it verbatim.
+type captureTransport struct {
+	base http.RoundTripper
+	req  *http.Request
+	body []byte
+}
+
+func (c *captureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if c.req == nil && req.Method == http.MethodPost {
+		body, _ := io.ReadAll(req.Body)
+		req.Body = io.NopCloser(bytes.NewReader(body))
+		clone := req.Clone(req.Context())
+		c.req, c.body = clone, body
+	}
+	return c.base.RoundTrip(req)
+}
+
+func TestReplayedRequestRejected(t *testing.T) {
+	admin, _, _ := newServerWithPolicy(t)
+	cap := &captureTransport{base: http.DefaultTransport}
+	admin.HTTP = &http.Client{Transport: cap}
+
+	// First request is legitimate and should succeed.
+	if err := admin.UpdateRef(RefUpdate{Name: "refs/branches/main", Visibility: ref.Public, Target: "v1"}); err != nil {
+		t.Fatalf("first update should succeed: %v", err)
+	}
+	if cap.req == nil {
+		t.Fatal("no request captured")
+	}
+	// Replay the captured request verbatim (same nonce, time, signature, body).
+	replay := cap.req.Clone(cap.req.Context())
+	replay.Body = io.NopCloser(bytes.NewReader(cap.body))
+	resp, err := http.DefaultTransport.RoundTrip(replay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("replayed request must be rejected (nonce already seen)")
+	}
+}
+
 func TestAnonCannotWrite(t *testing.T) {
 	_, anon, _ := newServerWithPolicy(t)
 	err := anon.UpdateRef(RefUpdate{Name: "refs/branches/main", Visibility: ref.Public, Target: "v1"})

@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -54,12 +55,21 @@ func (c *Client) do(method, path string, body []byte, headers map[string]string)
 	}
 	if c.Auth != nil {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
-		sig := ed25519.Sign(c.Auth.Priv, canonicalRequest(method, path, ts, bodyHash(body)))
+		nonce := newNonce()
+		sig := ed25519.Sign(c.Auth.Priv, canonicalRequest(method, path, ts, bodyHash(body), nonce))
 		req.Header.Set(HdrPub, c.Auth.Pub)
 		req.Header.Set(HdrTime, ts)
+		req.Header.Set(HdrNonce, nonce)
 		req.Header.Set(HdrSig, hex.EncodeToString(sig))
 	}
 	return c.HTTP.Do(req)
+}
+
+// newNonce returns a random 128-bit hex token, unique per request.
+func newNonce() string {
+	var b [16]byte
+	rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 // Info fetches repository metadata.
