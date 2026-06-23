@@ -20,6 +20,15 @@ import (
 // across re-encryption); others are plain blobs. The .haven directory is
 // skipped. Hashes are computed in memory; nothing is stored or encrypted here.
 func Scan(root string, marks []string) (map[string]object.FileEntry, error) {
+	return ScanBaseline(root, marks, nil)
+}
+
+// ScanBaseline is Scan with a committed baseline tree: a file already present
+// in the baseline takes its secret classification from the committed entry (so
+// its identity hash matches what was committed regardless of the current ref's
+// marks); new files are classified by marks. This keeps status/clean checks
+// correct when a tree carries secret entries onto a ref whose marks differ.
+func ScanBaseline(root string, marks []string, baseline map[string]object.FileEntry) (map[string]object.FileEntry, error) {
 	out := map[string]object.FileEntry{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -45,7 +54,9 @@ func Scan(root string, marks []string) (map[string]object.FileEntry, error) {
 			return err
 		}
 		typ := object.Blob
-		if secret.Match(rel, marks) {
+		if base, ok := baseline[rel]; ok {
+			typ = base.Type
+		} else if secret.Match(rel, marks) {
 			typ = object.Secret
 		}
 		out[rel] = object.FileEntry{

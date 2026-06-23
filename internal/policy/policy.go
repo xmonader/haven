@@ -142,6 +142,17 @@ func (p *Policy) isRestricted(resource string) bool {
 	return false
 }
 
+// IsSecretRef reports whether resource is a secret ref: every file in its
+// commits is encrypted at rest, not just mark-matched paths.
+func (p *Policy) IsSecretRef(resource string) bool {
+	for _, pat := range p.SecretRefs {
+		if matchResource(pat, resource) {
+			return true
+		}
+	}
+	return false
+}
+
 // Readers returns the set of actors that may read resource, and whether it is
 // public (granted to "*").
 func (p *Policy) Readers(resource string) (map[string]bool, bool) {

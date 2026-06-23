@@ -29,6 +29,16 @@ func Bootstrap(db *sql.DB, store *object.Store, me, signPub, encPub string, priv
 	})
 }
 
+// IsSecretRef reports whether refName is marked as a whole-tree secret ref in
+// the current policy. False when there is no policy.
+func IsSecretRef(db *sql.DB, store *object.Store, refName string) (bool, error) {
+	p, err := Load(db, store)
+	if err != nil || p == nil {
+		return false, err
+	}
+	return p.IsSecretRef(refName), nil
+}
+
 // RecipientsFor returns the age recipients a secret on refName must be
 // encrypted to (the active readers of that ref). Returns nil if there is no
 // policy yet.

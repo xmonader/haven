@@ -10,6 +10,7 @@ import (
 	"haven/internal/index"
 	"haven/internal/lock"
 	"haven/internal/object"
+	"haven/internal/policy"
 	"haven/internal/protocol"
 	"haven/internal/ref"
 	"haven/internal/repo"
@@ -27,9 +28,25 @@ func authedClient(url string) *protocol.Client {
 	return c
 }
 
-// marksOf loads the repository's secret path globs.
+// marksOf loads the repository's secret path globs. When the current HEAD ref
+// is a secret ref, every file is encrypted at rest, so "**" is appended.
 func marksOf(r *repo.Repo) ([]string, error) {
-	return secret.Marks(r.DB)
+	marks, err := secret.Marks(r.DB)
+	if err != nil {
+		return nil, err
+	}
+	headRef, err := r.Head()
+	if err != nil {
+		return nil, err
+	}
+	secretRef, err := policy.IsSecretRef(r.DB, object.NewStore(r.DB), headRef)
+	if err != nil {
+		return nil, err
+	}
+	if secretRef {
+		marks = append(marks, "**")
+	}
+	return marks, nil
 }
 
 // currentIdentity loads the user's identity, or nil if none exists.
@@ -138,7 +155,23 @@ func workingTree(r *repo.Repo, store *object.Store) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	scan, err := workspace.Scan(r.Root, marks)
+	headRef, err := r.Head()
+	if err != nil {
+		return "", err
+	}
+	headCommit, err := ref.Resolve(r.DB, headRef)
+	if err != nil {
+		return "", err
+	}
+	headTree, err := store.TreeOfCommit(headCommit)
+	if err != nil {
+		return "", err
+	}
+	baseline, err := object.FlattenFull(store, headTree)
+	if err != nil {
+		return "", err
+	}
+	scan, err := workspace.ScanBaseline(r.Root, marks, baseline)
 	if err != nil {
 		return "", err
 	}

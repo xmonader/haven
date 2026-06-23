@@ -91,17 +91,17 @@ func removeEmptyParents(root, full string) {
 // IsClean reports whether tracked files in the working tree match a reference
 // tree (untracked files are ignored). marks classify secret files for hashing.
 func IsClean(root string, store *object.Store, treeHash string, marks []string) (bool, error) {
-	tracked, err := object.Flatten(store, treeHash)
+	tracked, err := object.FlattenFull(store, treeHash)
 	if err != nil {
 		return false, err
 	}
-	work, err := Scan(root, marks)
+	work, err := ScanBaseline(root, marks, tracked)
 	if err != nil {
 		return false, err
 	}
-	for path, h := range tracked {
-		fe, ok := work[path]
-		if !ok || fe.Hash != h {
+	for path, fe := range tracked {
+		w, ok := work[path]
+		if !ok || w.Hash != fe.Hash {
 			return false, nil // modified or deleted
 		}
 	}

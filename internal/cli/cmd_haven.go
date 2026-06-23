@@ -19,10 +19,6 @@ func runHaven(args []string, out, errOut io.Writer) error {
 	}
 	sub, rest := args[0], args[1:]
 
-	if sub == "create" && hasFlag(rest, "--secret") {
-		return fmt.Errorf("--secret (encrypted-at-rest havens) lands in M8")
-	}
-
 	r, store, err := openRepo()
 	if err != nil {
 		return err
@@ -31,7 +27,17 @@ func runHaven(args []string, out, errOut io.Writer) error {
 
 	switch sub {
 	case "create":
-		return refCreate(r, positional(rest), ref.HavenPrefix, ref.Private, out)
+		pos := positional(rest)
+		if err := refCreate(r, pos, ref.HavenPrefix, ref.Private, out); err != nil {
+			return err
+		}
+		if hasFlag(rest, "--secret") {
+			if len(pos) != 1 {
+				return fmt.Errorf("usage: hv haven create <name> --secret")
+			}
+			return secretRef(r, store, []string{ref.HavenPrefix + pos[0]}, out)
+		}
+		return nil
 	case "switch":
 		return refSwitch(r, store, positional(rest), ref.HavenPrefix, out)
 	case "list":

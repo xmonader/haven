@@ -36,9 +36,13 @@ func runStatus(args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	head, err := object.Flatten(store, headTreeHash)
+	headFull, err := object.FlattenFull(store, headTreeHash)
 	if err != nil {
 		return err
+	}
+	head := make(map[string]string, len(headFull))
+	for path, fe := range headFull {
+		head[path] = fe.Hash
 	}
 	staged, err := index.All(r.DB)
 	if err != nil {
@@ -48,7 +52,7 @@ func runStatus(args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	working, err := workspace.Scan(r.Root, marks)
+	working, err := workspace.ScanBaseline(r.Root, marks, headFull)
 	if err != nil {
 		return err
 	}
