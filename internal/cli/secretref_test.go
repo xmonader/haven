@@ -90,3 +90,31 @@ func TestSecretRotateRewritesCiphertext(t *testing.T) {
 		t.Errorf("expected no drift, got:\n%s", out)
 	}
 }
+
+// TestSecretDriftDetectedAfterMembershipChange verifies the baseline is armed at
+// the first commit of secrets and that adding a reader is reported as drift.
+func TestSecretDriftDetectedAfterMembershipChange(t *testing.T) {
+	withIdentity(t)
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "config", "user.name", "Dev")
+	run(t, dir, "key", "gen")
+
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("TOKEN=abc\n"), 0o644)
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-m", "secret")
+
+	// Baseline armed at commit: no drift yet (no rotate needed first).
+	if out, _ := run(t, dir, "secret", "status"); !strings.Contains(out, "no secret drift") {
+		t.Errorf("expected no drift right after commit, got:\n%s", out)
+	}
+
+	// Adding a reader changes the recipient set on the public branch.
+	run(t, dir, "member", "add", "bob",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsxq8gj")
+	out, _ := run(t, dir, "secret", "status")
+	if !strings.Contains(out, "DRIFT") {
+		t.Errorf("expected drift after adding a reader, got:\n%s", out)
+	}
+}

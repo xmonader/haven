@@ -97,6 +97,9 @@ func runCommit(args []string, out, errOut io.Writer) error {
 	if err := ref.Set(r.DB, headRef, commitHash); err != nil {
 		return err
 	}
+	if err := armSecretBaseline(r, store, headRef, treeHash); err != nil {
+		return err
+	}
 
 	fmt.Fprintf(out, "[%s %s] %s\n", ref.ShortName(headRef), commitHash[:10], firstLine(msg))
 	return nil

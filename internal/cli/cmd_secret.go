@@ -201,6 +201,34 @@ func resolveRefName(r *repo.Repo, name string) string {
 	return ref.BranchPrefix + name
 }
 
+// armSecretBaseline records the recipient fingerprint the first time secrets
+// appear on a ref, so `secret status` has a baseline to detect drift against.
+// It never overwrites an existing baseline (set by a prior commit or rotate).
+func armSecretBaseline(r *repo.Repo, store *object.Store, refName, treeHash string) error {
+	if got, _, _ := config.Get(r.DB, rotatedKey(refName)); got != "" {
+		return nil
+	}
+	files, err := object.FlattenFull(store, treeHash)
+	if err != nil {
+		return err
+	}
+	hasSecret := false
+	for _, fe := range files {
+		if fe.Type == object.Secret {
+			hasSecret = true
+			break
+		}
+	}
+	if !hasSecret {
+		return nil
+	}
+	recips, err := policy.RecipientsFor(r.DB, store, refName)
+	if err != nil || len(recips) == 0 {
+		return err
+	}
+	return config.Set(r.DB, rotatedKey(refName), recipientsFingerprint(recips))
+}
+
 func rotatedKey(refName string) string { return "secret.rotated." + refName }
 
 // recipientsFingerprint is a stable hash of a recipient set, order-independent.
