@@ -74,6 +74,22 @@ func (s *Store) ReplaceContent(h string, content []byte) error {
 	return nil
 }
 
+// PutSecret stores a Secret object, overwriting any existing ciphertext for the
+// same (plaintext-derived) hash. Unlike PutRaw, this propagates a rotated
+// ciphertext: the hash is stable across re-encryption, so receiving a rotated
+// secret must replace the stored bytes rather than ignore them.
+func (s *Store) PutSecret(hash string, content []byte) error {
+	_, err := s.db.Exec(
+		`INSERT INTO objects(hash, type, size, content) VALUES(?,?,?,?)
+		 ON CONFLICT(hash) DO UPDATE SET content=excluded.content, size=excluded.size`,
+		hash, string(Secret), len(content), content,
+	)
+	if err != nil {
+		return fmt.Errorf("put secret %s: %w", hash, err)
+	}
+	return nil
+}
+
 // Get returns the type and payload of an object.
 func (s *Store) Get(h string) (Type, []byte, error) {
 	var t string

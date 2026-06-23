@@ -229,7 +229,8 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if object.Type(typ) == object.Secret {
-		if err := s.store.PutRaw(hash, object.Secret, content); err != nil {
+		// Upsert: a rotated secret keeps its hash but carries new ciphertext.
+		if err := s.store.PutSecret(hash, content); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
