@@ -181,8 +181,15 @@ func workingTree(r *repo.Repo, store *object.Store) (string, error) {
 			files[path] = fe // identity hash; ciphertext object already stored
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(r.Root, filepath.FromSlash(path)))
-		if err != nil {
+		full := filepath.Join(r.Root, filepath.FromSlash(path))
+		var content []byte
+		if fe.Mode == object.ModeSymlink {
+			target, err := os.Readlink(full)
+			if err != nil {
+				return "", err
+			}
+			content = []byte(target)
+		} else if content, err = os.ReadFile(full); err != nil {
 			return "", err
 		}
 		h, err := store.Put(object.Blob, content)

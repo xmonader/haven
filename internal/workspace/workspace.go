@@ -40,8 +40,9 @@ func ScanBaseline(root string, marks []string, baseline map[string]object.FileEn
 			}
 			return nil
 		}
-		// Skip symlinks and other non-regular files for v1.
-		if !d.Type().IsRegular() {
+		isSymlink := d.Type()&fs.ModeSymlink != 0
+		// Skip sockets, devices, pipes — only regular files and symlinks track.
+		if !d.Type().IsRegular() && !isSymlink {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -49,10 +50,18 @@ func ScanBaseline(root string, marks []string, baseline map[string]object.FileEn
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		content, err := os.ReadFile(path)
-		if err != nil {
+
+		var content []byte
+		if isSymlink {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			content = []byte(target) // store the link target as the blob
+		} else if content, err = os.ReadFile(path); err != nil {
 			return err
 		}
+
 		typ := object.Blob
 		if base, ok := baseline[rel]; ok {
 			typ = base.Type
@@ -61,7 +70,7 @@ func ScanBaseline(root string, marks []string, baseline map[string]object.FileEn
 		}
 		out[rel] = object.FileEntry{
 			Hash: hash.Of(string(typ), content),
-			Mode: modeFor(d),
+			Mode: modeFor(d, isSymlink),
 			Type: typ,
 		}
 		return nil
@@ -72,7 +81,10 @@ func ScanBaseline(root string, marks []string, baseline map[string]object.FileEn
 	return out, nil
 }
 
-func modeFor(d fs.DirEntry) string {
+func modeFor(d fs.DirEntry, isSymlink bool) string {
+	if isSymlink {
+		return object.ModeSymlink
+	}
 	info, err := d.Info()
 	if err == nil && info.Mode()&0o111 != 0 {
 		return object.ModeExec

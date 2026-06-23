@@ -56,8 +56,15 @@ func runAdd(args []string, out, errOut io.Writer) error {
 			return fmt.Errorf("%s: no matching files", arg)
 		}
 		for _, rel := range matches {
-			content, err := os.ReadFile(filepath.Join(r.Root, filepath.FromSlash(rel)))
-			if err != nil {
+			full := filepath.Join(r.Root, filepath.FromSlash(rel))
+			var content []byte
+			if scan[rel].Mode == object.ModeSymlink {
+				target, err := os.Readlink(full)
+				if err != nil {
+					return err
+				}
+				content = []byte(target)
+			} else if content, err = os.ReadFile(full); err != nil {
 				return err
 			}
 			h, isSecret, err := storeFile(r, store, headRef, rel, content, marks)

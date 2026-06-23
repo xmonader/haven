@@ -52,6 +52,16 @@ func Checkout(root string, store *object.Store, oldTree, newTree string, id *ide
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			return err
 		}
+		if fe.Mode == object.ModeSymlink {
+			// Replace any existing entry, then recreate the link to its target.
+			if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if err := os.Symlink(string(content), full); err != nil {
+				return err
+			}
+			continue
+		}
 		mode := os.FileMode(0o644)
 		if fe.Mode == object.ModeExec {
 			mode = 0o755

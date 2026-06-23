@@ -9,9 +9,10 @@ import (
 
 // File modes stored in tree entries.
 const (
-	ModeFile = "100644"
-	ModeExec = "100755"
-	ModeTree = "040000"
+	ModeFile    = "100644"
+	ModeExec    = "100755"
+	ModeTree    = "040000"
+	ModeSymlink = "120000" // blob content is the link target path
 )
 
 // TreeEntry is one row in a tree: a named child object.
