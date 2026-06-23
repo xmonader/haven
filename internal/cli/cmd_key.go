@@ -53,7 +53,9 @@ func runKey(args []string, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(out, id.Recipient())
+		// Both public keys, ready to paste into 'hv member add <name> …'.
+		fmt.Fprintf(out, "sign: %s\n", id.SignPub())
+		fmt.Fprintf(out, "enc:  %s\n", id.Recipient())
 		return nil
 	default:
 		return fmt.Errorf("unknown subcommand %q (want gen|show)", sub)
