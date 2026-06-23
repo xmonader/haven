@@ -17,6 +17,11 @@ type Command struct {
 // registry of all subcommands, in display order.
 var registry = []Command{
 	cmdInit,
+	cmdConfig,
+	cmdAdd,
+	cmdCommit,
+	cmdStatus,
+	cmdLog,
 }
 
 // Dispatch routes argv (excluding the program name) to a subcommand.

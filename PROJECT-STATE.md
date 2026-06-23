@@ -1,8 +1,8 @@
 # Haven — Project State
 
 ## Current State
-- **Done:** M0 — skeleton: `go.mod`, `Makefile`, SQLite schema (`internal/store`), repo init/open/discover (`internal/repo`), CLI dispatch (`internal/cli`), `hv init`. Build + tests green.
-- **Next:** M1 — objects (blob/tree/commit) + `add`/`commit`/`status`/`log`, HEAD advancement.
+- **Done:** M0 skeleton. **M1** — object model (`internal/object`: blob/tree/commit, content-addressed store, nested tree build/flatten), `internal/hash`, `internal/ref` (CRUD + visibility), `internal/index` (staging), `internal/workspace` (scan), `internal/config` (author). Commands: `init config add commit status log`. End-to-end + unit tests green, vet clean.
+- **Next:** M2 — `branch create/switch/list/delete`, `checkout` (write tree to working dir), `diff` between refs.
 - **Blocked:** nothing.
 
 ## Key Decisions
