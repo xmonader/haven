@@ -11,6 +11,7 @@ Haven is a from-scratch VCS for code that isn't ready for the public world yet. 
 A complete local + networked VCS with a signed-policy ACL and encrypted secrets:
 
 - **Local:** `init` · `add` · `commit` · `status` · `log` · `diff` · `config` · `reset` · `restore` · `tag` (symlinks tracked)
+- **History:** `cherry-pick` · `revert` · `rebase` (linear, roll-back on conflict) · `stash` (save/list/pop) · `bisect` (start/good/bad/reset)
 - **Branches & havens:** `branch` · `haven` (private) · `publish` · `merge` (three-way, rename-aware, conflict markers)
 - **Remotes:** `serve` (HTTP/HTTPS) · `remote` · `push` (refuses havens) · `fetch` · `pull` · `clone` · `sync` (carries havens between your machines)
 - **Identity & access:** `key` · `member` · `group` · `grant`/`revoke` · `restrict` · `policy` — a **portable, ed25519-signed policy chain** in the repo is the authorization root. Grants (`read`/`write`/`force`/`grant`/`admin`) are verifiable offline; `restrict` removes public access for need-to-know refs. The server **enforces** it: each request is signed over method+path+time+body+nonce (a captured signature can't be replayed against a different body, nor reused verbatim — the server rejects seen nonces within the skew window), maps the key to a keyring actor, and gates ref listing, object fetch, ref updates, and policy extension.
