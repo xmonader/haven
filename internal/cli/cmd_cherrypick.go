@@ -127,16 +127,22 @@ type applySpec struct {
 	email     string
 }
 
-// threeWayApply merges spec onto the current HEAD, materializes the result, and
-// (when conflict-free) commits it parented on HEAD. Returns the new commit hash
-// and whether the result conflicted. Requires a clean working tree.
+// threeWayApply acquires the working-copy lock and applies spec onto HEAD. Use
+// applyOnto directly when already holding the lock (e.g. inside rebase).
 func threeWayApply(r *repo.Repo, store *object.Store, spec applySpec, out io.Writer) (string, bool, error) {
 	wc, err := lock.Acquire(r.Root)
 	if err != nil {
 		return "", false, err
 	}
 	defer wc.Release()
+	return applyOnto(r, store, spec, out)
+}
 
+// applyOnto merges spec onto the current HEAD, materializes the result, and
+// (when conflict-free) commits it parented on HEAD. Returns the new commit hash
+// and whether the result conflicted. Requires a clean working tree and that the
+// caller already holds the working-copy lock.
+func applyOnto(r *repo.Repo, store *object.Store, spec applySpec, out io.Writer) (string, bool, error) {
 	headRef, err := r.Head()
 	if err != nil {
 		return "", false, err
