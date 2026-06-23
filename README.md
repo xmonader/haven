@@ -109,4 +109,5 @@ Single static Go binary; SQLite-backed single-file repos (`.haven/haven.db`); SH
 
 ## Documentation
 
+- [`docs/userguide.md`](docs/userguide.md) — practical tour: install, the two-axis model, and walkthroughs of every workflow.
 - [`docs/design.md`](docs/design.md) — full design: the two axes, signed portable policy, secrets, decentralization model, architecture, protocol, milestones, and adversarial review.
