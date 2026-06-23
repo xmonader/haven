@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS members (
 CREATE TABLE IF NOT EXISTS secret_paths (
 	glob TEXT PRIMARY KEY
 );
+
+CREATE TABLE IF NOT EXISTS seen_nonces (
+	nonce   TEXT PRIMARY KEY,   -- accepted signed-request nonce
+	seen_at INTEGER NOT NULL    -- client unix time, for skew-window eviction
+);
 `
 
 // Open opens (creating if needed) the SQLite database at path and ensures the

@@ -26,7 +26,6 @@ type Server struct {
 	mu    sync.Mutex
 	gen   uint64                // bumped on every ref change
 	cache map[string]reachEntry // actor -> reachable object set
-	seen  map[string]int64      // accepted nonce -> client unix time (anti-replay)
 }
 
 // reachEntry caches the set of objects an actor may fetch, valid for one gen.
@@ -37,7 +36,7 @@ type reachEntry struct {
 
 // NewServer builds a server over an open database.
 func NewServer(db *sql.DB, kind string) *Server {
-	return &Server{db: db, store: object.NewStore(db), kind: kind, cache: map[string]reachEntry{}, seen: map[string]int64{}}
+	return &Server{db: db, store: object.NewStore(db), kind: kind, cache: map[string]reachEntry{}}
 }
 
 // Handler returns the HTTP routes.
@@ -94,23 +93,20 @@ func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, bod
 	return "", body, false // signed by an unknown/revoked key
 }
 
-// acceptNonce records a freshly-seen nonce and reports whether it was new. It
-// also evicts nonces older than the skew window (those would fail the time
-// check anyway, so they need no replay protection).
+// acceptNonce durably records a freshly-seen nonce and reports whether it was
+// new. Persisted to the DB so replay protection survives restarts and holds
+// across processes sharing the repo. Nonces older than the skew window are
+// evicted (they fail the time check anyway). The INSERT is the atomic guard:
+// a duplicate violates the primary key.
 func (s *Server) acceptNonce(nonce string, tsec int64) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	cutoff := time.Now().Unix() - MaxSkewSeconds
-	for n, seenAt := range s.seen {
-		if seenAt < cutoff {
-			delete(s.seen, n)
-		}
+	s.db.Exec(`DELETE FROM seen_nonces WHERE seen_at < ?`, cutoff)
+	res, err := s.db.Exec(`INSERT INTO seen_nonces(nonce, seen_at) VALUES(?,?)`, nonce, tsec)
+	if err != nil {
+		return false // primary-key conflict => replay
 	}
-	if _, dup := s.seen[nonce]; dup {
-		return false
-	}
-	s.seen[nonce] = tsec
-	return true
+	n, _ := res.RowsAffected()
+	return n == 1
 }
 
 func (s *Server) getInfo(w http.ResponseWriter, r *http.Request) {
