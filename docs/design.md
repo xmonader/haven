@@ -266,7 +266,7 @@ hv serve   [<addr>]                    # run a haven host
 
 # maintenance
 hv fsck                                # verify object integrity + policy chain
-hv gc                                  # drop unreachable objects (keeps delta bases)
+hv gc [--prune now|<dur>]              # drop unreachable objects (grace period; keeps delta bases)
 hv repack                              # delta-compress similar objects, then VACUUM
 ```
 

@@ -161,7 +161,7 @@ hv bisect reset
 
 ```sh
 hv fsck    # verify object integrity and the policy chain
-hv gc      # drop unreachable objects (keeps everything reachable from refs/tags/stash/policy)
+hv gc      # drop unreachable objects (keeps reachable + recently-written; --prune=now to force)
 hv repack  # delta-compress similar objects to shrink .haven/haven.db, then VACUUM
 ```
 
@@ -173,10 +173,12 @@ policy chain whole. Run it periodically on a long-lived repo; `fsck` afterward
 confirms every object still hashes correctly.
 
 `gc` and `repack` take a non-blocking repo lock, so they refuse to run
-concurrently with each other or with a checkout/merge/rebase. Run them when
-the repo is otherwise quiescent — in particular, don't run `gc` during an
-in-flight `commit`, which (by design, for speed) does not take that lock and
-could have just-written objects swept before its ref update lands.
+concurrently with each other or with a checkout/merge/rebase. `gc` also applies
+a **grace period**: unreachable objects written within the last 10 minutes are
+spared, so a concurrent `commit`/`push` (which, by design, doesn't take the
+lock) can't have its just-written objects swept before its ref update lands.
+Use `hv gc --prune=now` to reclaim everything immediately, or
+`hv gc --prune=2h` to set a custom window.
 
 ---
 
