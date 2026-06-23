@@ -200,7 +200,7 @@ Run `hv help` for the full list.
 
 Haven is solid for solo and small-trusted-team use. Be aware of these by-design or not-yet boundaries:
 
-- **Storage doesn't pack/delta.** Every object is stored whole in SQLite and loaded into memory per operation. Great for source trees; not suited to very large repos or large binary files.
+- **Storage compresses but doesn't delta/pack.** Each object is zlib-compressed at rest (incompressible content is stored raw, never enlarged), which cuts on-disk size for source trees. But there is no delta encoding or packfile, and each object is still loaded whole into memory per operation. Great for source trees; not suited to very large repos or large binary files.
 - **Unix only.** The working-copy lock uses `flock(2)`; Windows is unsupported.
 - **Shared-plaintext secrets across refs.** A secret's identity is its plaintext hash, so the *same* secret bytes on two refs share one ciphertext. This keeps merges of a shared `.env` clean, but if two refs need that identical secret encrypted to *different* readers, only one recipient set is stored. It is not a disclosure risk (identical plaintext means identical knowledge); at worst a reader is temporarily locked out until `hv secret rotate`. Use distinct secret values per trust boundary.
 - **Replay nonces are evicted after 5 minutes.** Within that window replay is blocked by a durable nonce table; the window itself is the clock-skew bound.
