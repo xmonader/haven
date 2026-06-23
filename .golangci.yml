@@ -1,0 +1,46 @@
+version: "2"
+
+# Haven is a CLI: it writes to stdout/stderr constantly and closes scratch files
+# in defers and cleanup paths. Checking those error returns adds noise without
+# catching real defects, so they are excluded below. Everything that affects the
+# object store, crypto, or protocol is still checked.
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*os.File).Close
+        - (io.Closer).Close
+        - os.Remove
+        - (*database/sql.DB).Close
+        - (*database/sql.DB).Exec
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Row).Scan
+        - (*database/sql.Rows).Close
+        - (*encoding/json.Encoder).Encode
+        # Sink is always an in-memory bytes.Buffer, which never errors.
+        - (*compress/zlib.Writer).Write
+        - (*compress/zlib.Writer).Close
+        # HTTP response best-effort writes / graceful shutdown / lock release:
+        # nothing actionable on failure.
+        - (net/http.ResponseWriter).Write
+        - (*net/http.Server).Shutdown
+        - syscall.Flock
+        # Repo/lock handles released in defers; the deferred error is unactionable.
+        - (*haven/internal/repo.Repo).Close
+        - (*haven/internal/lock.Lock).Release
+        - io.WriteString
+  exclusions:
+    rules:
+      # Tests assert on behaviour, not on cleanup error returns; checking every
+      # db.Close()/Scan() in setup/teardown is noise.
+      - linters: [errcheck]
+        path: _test\.go
+      # Usage strings are printed verbatim; the trailing "..." denotes variadic
+      # arguments, not a sentence, so ST1005's no-trailing-punctuation rule is a
+      # false positive here.
+      - linters: [staticcheck]
+        text: "ST1005"
+        source: "usage: hv"

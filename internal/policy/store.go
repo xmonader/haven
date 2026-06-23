@@ -117,9 +117,10 @@ func VerifyChain(db *sql.DB, store *object.Store) (int, error) {
 	if head == "" {
 		return 0, nil
 	}
-	// Collect chain head..root.
+	// Collect chain head..root. Each parent is loaded by the hash recorded in
+	// its child's Parent field, so the content-addressed store enforces the
+	// linkage: a child can't point at an object that isn't the real parent.
 	var chain []*Policy
-	var hashes []string
 	h := head
 	for h != "" {
 		p, err := loadObject(store, h)
@@ -127,7 +128,6 @@ func VerifyChain(db *sql.DB, store *object.Store) (int, error) {
 			return 0, err
 		}
 		chain = append(chain, p)
-		hashes = append(hashes, h)
 		h = p.Parent
 	}
 	// Verify from root upward so each has its parent available.

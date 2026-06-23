@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS secret_paths (
 
 CREATE TABLE IF NOT EXISTS seen_nonces (
 	nonce   TEXT PRIMARY KEY,   -- accepted signed-request nonce
-	seen_at INTEGER NOT NULL    -- client unix time, for skew-window eviction
+	seen_at INTEGER NOT NULL    -- server receive time (unix), for skew-window eviction
 );
 `
 

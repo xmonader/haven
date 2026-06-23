@@ -124,7 +124,6 @@ func parsePruneGrace(args []string) (time.Duration, error) {
 				return 0, fmt.Errorf("--prune requires a value (now or a duration like 2h)")
 			}
 			val = args[i+1]
-			i++
 		case strings.HasPrefix(a, "--prune="):
 			val = strings.TrimPrefix(a, "--prune=")
 		default:

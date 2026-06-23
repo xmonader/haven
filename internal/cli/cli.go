@@ -64,7 +64,10 @@ func Dispatch(argv []string, out, errOut io.Writer) int {
 		return 0
 	}
 	if argv[0] == "--version" || argv[0] == "-v" {
-		runVersion(nil, out, errOut)
+		if err := runVersion(nil, out, errOut); err != nil {
+			fmt.Fprintf(errOut, "hv version: %v\n", err)
+			return 1
+		}
 		return 0
 	}
 	name := argv[0]
