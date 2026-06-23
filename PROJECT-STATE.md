@@ -3,7 +3,8 @@
 ## Current State
 - **Done:** M0 skeleton. **M1** — object model (`internal/object`: blob/tree/commit, content-addressed store, nested tree build/flatten), `internal/hash`, `internal/ref` (CRUD + visibility), `internal/index` (staging), `internal/workspace` (scan), `internal/config` (author). Commands: `init config add commit status log`. End-to-end + unit tests green, vet clean.
   **M2** — `internal/diff` (tree diff + LCS unified diff), `internal/workspace/checkout.go` (materialize tree, clean check), branch create/switch/list/delete, `diff`. Shared `switchTo`/`resolveTree`/`workingTree` helpers. Tests + vet green.
-- **Next:** M3 — havens: `hv haven create/switch/list/delete` (private visibility, reusing refCreate/refSwitch), `hv publish <haven> [--as <branch>]`.
+  **M3** — havens (private refs via HavenPrefix/Private), `hv publish` with fast-forward-only divergence refusal, `IsAncestor` commit walk. Havens never appear in branch list. Tests + vet green.
+- **Next:** M4 — three-way merge, conflict markers, exact-content rename detection.
 - **Blocked:** nothing.
 
 ## Key Decisions

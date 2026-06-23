@@ -128,6 +128,37 @@ func flatten(s *Store, treeHash, prefix string, out map[string]string) error {
 	return nil
 }
 
+// IsAncestor reports whether ancestor is reachable from descendant by walking
+// parent links. A commit is its own ancestor. An empty ancestor is treated as
+// reachable from anything (the empty/unborn history).
+func (s *Store) IsAncestor(ancestor, descendant string) (bool, error) {
+	if ancestor == "" || ancestor == descendant {
+		return true, nil
+	}
+	if descendant == "" {
+		return false, nil
+	}
+	seen := map[string]bool{}
+	stack := []string{descendant}
+	for len(stack) > 0 {
+		cur := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if cur == ancestor {
+			return true, nil
+		}
+		if seen[cur] {
+			continue
+		}
+		seen[cur] = true
+		c, err := s.GetCommit(cur)
+		if err != nil {
+			return false, err
+		}
+		stack = append(stack, c.Parents...)
+	}
+	return false, nil
+}
+
 // TreeOfCommit returns the root tree hash of a commit, or "" for no commit.
 func (s *Store) TreeOfCommit(commitHash string) (string, error) {
 	if commitHash == "" {

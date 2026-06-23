@@ -23,6 +23,8 @@ var registry = []Command{
 	cmdStatus,
 	cmdLog,
 	cmdBranch,
+	cmdHaven,
+	cmdPublish,
 	cmdDiff,
 }
 
