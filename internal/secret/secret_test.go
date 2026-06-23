@@ -58,14 +58,14 @@ func TestMultiRecipient(t *testing.T) {
 func TestMatch(t *testing.T) {
 	marks := []string{".env", ".env.*", "*.pem", "secrets/**", "**/credentials.json"}
 	cases := map[string]bool{
-		".env":                     true,
-		".env.production":          true,
-		"config/server.pem":        true, // basename glob
-		"secrets/db/password.txt":  true, // ** across segments
+		".env":                        true,
+		".env.production":             true,
+		"config/server.pem":           true, // basename glob
+		"secrets/db/password.txt":     true, // ** across segments
 		"app/config/credentials.json": true,
-		"main.go":                  false,
-		"env":                      false,
-		"readme.env.md":            false,
+		"main.go":                     false,
+		"env":                         false,
+		"readme.env.md":               false,
 	}
 	for path, want := range cases {
 		if got := Match(path, marks); got != want {

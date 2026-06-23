@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 
+	"haven/internal/object"
 	"haven/internal/protocol"
 	"haven/internal/ref"
 	"haven/internal/remote"
 	"haven/internal/repo"
-	"haven/internal/object"
 )
 
 var cmdFetch = Command{

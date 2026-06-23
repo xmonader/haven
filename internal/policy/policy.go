@@ -22,7 +22,7 @@ type Member struct {
 // Grant is a capability. Verbs: read, write, force, grant, admin.
 type Grant struct {
 	ID       string `json:"id"`
-	Subject  string `json:"subject"`  // actor name, group name, or "*"
+	Subject  string `json:"subject"` // actor name, group name, or "*"
 	Verb     string `json:"verb"`
 	Resource string `json:"resource"` // ref glob, e.g. refs/branches/**
 }
@@ -43,11 +43,11 @@ type Policy struct {
 
 // Verbs.
 const (
-	Read  = "read"
-	Write = "write"
-	Force = "force"
+	Read   = "read"
+	Write  = "write"
+	Force  = "force"
 	GrantV = "grant"
-	Admin = "admin"
+	Admin  = "admin"
 )
 
 var rank = map[string]int{Read: 1, Write: 2, Force: 3, Admin: 4}

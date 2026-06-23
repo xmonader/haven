@@ -36,8 +36,8 @@ func TestRenamePlusEditMergesCleanly(t *testing.T) {
 	s := object.NewStore(db)
 
 	base := mkTree(t, s, map[string]string{"old.txt": "line1\nline2\nline3\n"})
-	ours := mkTree(t, s, map[string]string{"new.txt": "line1\nline2\nline3\n"})              // pure rename
-	theirs := mkTree(t, s, map[string]string{"old.txt": "line1\nEDITED\nline3\n"})            // edit in place
+	ours := mkTree(t, s, map[string]string{"new.txt": "line1\nline2\nline3\n"})    // pure rename
+	theirs := mkTree(t, s, map[string]string{"old.txt": "line1\nEDITED\nline3\n"}) // edit in place
 
 	res, err := Trees(s, base, ours, theirs)
 	if err != nil {

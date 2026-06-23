@@ -7,7 +7,7 @@ import (
 
 func TestCleanMergeNonOverlapping(t *testing.T) {
 	base := []byte("a\nb\nc\n")
-	ours := []byte("a CHANGED\nb\nc\n")  // edit first line
+	ours := []byte("a CHANGED\nb\nc\n")   // edit first line
 	theirs := []byte("a\nb\nc CHANGED\n") // edit last line
 	merged, conflict := Content(base, ours, theirs)
 	if conflict {
