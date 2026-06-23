@@ -5,6 +5,7 @@ import (
 	"io"
 	"sort"
 
+	"haven/internal/lock"
 	"haven/internal/object"
 )
 
@@ -35,6 +36,16 @@ func runRepack(args []string, out, errOut io.Writer) error {
 		return err
 	}
 	defer r.Close()
+
+	// Hold the repo lock: rewriting objects to deltas must not run concurrently
+	// with gc (which could delete a base mid-repack) or another repack (which
+	// could build a deeper-than-1 chain). The lock is non-blocking, so concurrent
+	// maintenance fails fast rather than racing.
+	wc, err := lock.Acquire(r.Root)
+	if err != nil {
+		return err
+	}
+	defer wc.Release()
 
 	metas, err := store.Metas()
 	if err != nil {

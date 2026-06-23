@@ -1,7 +1,9 @@
-// Package lock provides an advisory working-copy lock so concurrent mutating
-// operations (commit, checkout, merge) don't corrupt the working tree. The
-// underlying primitive is platform-specific (flock on Unix, LockFileEx on
-// Windows); see lock_unix.go and lock_windows.go.
+// Package lock provides an advisory repository lock so concurrent mutating
+// operations don't corrupt the working tree or the object store. It serializes
+// working-tree changes (checkout, merge, rebase, …) and object-store
+// maintenance (gc, repack) against each other. The underlying primitive is
+// platform-specific (flock on Unix, LockFileEx on Windows); see lock_unix.go
+// and lock_windows.go.
 package lock
 
 import (

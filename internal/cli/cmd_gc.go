@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"haven/internal/lock"
 	"haven/internal/object"
 	"haven/internal/policy"
 	"haven/internal/ref"
@@ -21,6 +22,15 @@ func runGc(args []string, out, errOut io.Writer) error {
 		return err
 	}
 	defer r.Close()
+
+	// Hold the repo lock: sweeping objects must not run concurrently with repack
+	// (which could create a delta against a base this gc is about to delete) or
+	// another mutating op. Non-blocking — fails fast if the repo is busy.
+	wc, err := lock.Acquire(r.Root)
+	if err != nil {
+		return err
+	}
+	defer wc.Release()
 
 	// Union of objects reachable from every ref.
 	reachable := map[string]bool{}
