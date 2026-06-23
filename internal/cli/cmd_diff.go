@@ -51,6 +51,10 @@ func runDiff(args []string, out, errOut io.Writer) error {
 		return err
 	}
 	for _, c := range changes {
+		if c.Kind == diff.Renamed {
+			fmt.Fprintf(out, "diff renamed %s -> %s\n", c.From, c.Path)
+			continue
+		}
 		fmt.Fprintf(out, "diff %s %s\n", c.Kind, c.Path)
 		oldContent := contentOf(store, c.Old)
 		newContent := contentOf(store, c.New)

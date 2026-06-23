@@ -53,6 +53,49 @@ func lcsDiff(a, b []string) []op {
 	return ops
 }
 
+// Chunk is a contiguous edit of base lines [BaseStart, BaseEnd) replaced by
+// Repl. A pure insertion has BaseStart == BaseEnd.
+type Chunk struct {
+	BaseStart int
+	BaseEnd   int
+	Repl      []string
+}
+
+// Chunks expresses the edit from base to side as a list of non-overlapping,
+// ascending chunks over base line indices. Used by three-way merge.
+func Chunks(base, side []string) []Chunk {
+	ops := lcsDiff(base, side)
+	var chunks []Chunk
+	bi := 0
+	var cur *Chunk
+	flush := func() {
+		if cur != nil {
+			chunks = append(chunks, *cur)
+			cur = nil
+		}
+	}
+	for _, o := range ops {
+		switch o.kind {
+		case ' ':
+			flush()
+			bi++
+		case '-':
+			if cur == nil {
+				cur = &Chunk{BaseStart: bi, BaseEnd: bi}
+			}
+			cur.BaseEnd = bi + 1
+			bi++
+		case '+':
+			if cur == nil {
+				cur = &Chunk{BaseStart: bi, BaseEnd: bi}
+			}
+			cur.Repl = append(cur.Repl, o.text)
+		}
+	}
+	flush()
+	return chunks
+}
+
 type hunk struct {
 	oldStart, oldCount int
 	newStart, newCount int

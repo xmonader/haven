@@ -25,6 +25,7 @@ var registry = []Command{
 	cmdBranch,
 	cmdHaven,
 	cmdPublish,
+	cmdMerge,
 	cmdDiff,
 }
 

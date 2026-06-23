@@ -159,6 +159,84 @@ func (s *Store) IsAncestor(ancestor, descendant string) (bool, error) {
 	return false, nil
 }
 
+// ancestors returns the set of commits reachable from start (including start).
+func (s *Store) ancestors(start string) (map[string]bool, error) {
+	set := map[string]bool{}
+	if start == "" {
+		return set, nil
+	}
+	stack := []string{start}
+	for len(stack) > 0 {
+		cur := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if set[cur] {
+			continue
+		}
+		set[cur] = true
+		c, err := s.GetCommit(cur)
+		if err != nil {
+			return nil, err
+		}
+		stack = append(stack, c.Parents...)
+	}
+	return set, nil
+}
+
+// MergeBase returns the best common ancestor of a and b: a common ancestor that
+// is not itself an ancestor of any other common ancestor. Returns "" if there
+// is none (disjoint histories).
+func (s *Store) MergeBase(a, b string) (string, error) {
+	if a == "" || b == "" {
+		return "", nil
+	}
+	ancA, err := s.ancestors(a)
+	if err != nil {
+		return "", err
+	}
+	// Walk b's history; the frontier of nodes already in ancA are candidates.
+	var candidates []string
+	visited := map[string]bool{}
+	queue := []string{b}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if visited[cur] {
+			continue
+		}
+		visited[cur] = true
+		if ancA[cur] {
+			candidates = append(candidates, cur)
+			continue // do not descend past a common ancestor
+		}
+		c, err := s.GetCommit(cur)
+		if err != nil {
+			return "", err
+		}
+		queue = append(queue, c.Parents...)
+	}
+	// Pick a candidate not dominated by another candidate.
+	for _, c := range candidates {
+		dominated := false
+		for _, d := range candidates {
+			if c == d {
+				continue
+			}
+			anc, err := s.IsAncestor(c, d)
+			if err != nil {
+				return "", err
+			}
+			if anc {
+				dominated = true
+				break
+			}
+		}
+		if !dominated {
+			return c, nil
+		}
+	}
+	return "", nil
+}
+
 // TreeOfCommit returns the root tree hash of a commit, or "" for no commit.
 func (s *Store) TreeOfCommit(commitHash string) (string, error) {
 	if commitHash == "" {

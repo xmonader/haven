@@ -64,30 +64,35 @@ func switchTo(r *repo.Repo, store *object.Store, targetRef string) error {
 	return resetStaging(r, store, targetTree)
 }
 
-// resolveTree turns a revision spec into a tree hash. Supported specs:
+// resolveCommit turns a revision spec into a commit hash. Supported specs:
 // "HEAD"/"@", a short branch/haven name, a full ref name, or a commit hash.
-func resolveTree(r *repo.Repo, store *object.Store, spec string) (string, error) {
+func resolveCommit(r *repo.Repo, spec string) (string, error) {
 	switch spec {
 	case "HEAD", "@":
 		headRef, err := r.Head()
 		if err != nil {
 			return "", err
 		}
-		commit, err := ref.Resolve(r.DB, headRef)
-		if err != nil {
-			return "", err
-		}
-		return store.TreeOfCommit(commit)
+		return ref.Resolve(r.DB, headRef)
 	}
 	if hash.IsHash(spec) {
-		return store.TreeOfCommit(spec)
+		return spec, nil
 	}
 	for _, name := range []string{spec, ref.BranchPrefix + spec, ref.HavenPrefix + spec} {
 		if rf, err := ref.Get(r.DB, name); err == nil {
-			return store.TreeOfCommit(rf.Target)
+			return rf.Target, nil
 		}
 	}
 	return "", fmt.Errorf("%s: unknown revision", spec)
+}
+
+// resolveTree turns a revision spec into a tree hash.
+func resolveTree(r *repo.Repo, store *object.Store, spec string) (string, error) {
+	commit, err := resolveCommit(r, spec)
+	if err != nil {
+		return "", err
+	}
+	return store.TreeOfCommit(commit)
 }
 
 // workingTree snapshots the current working tree into objects (storing blobs)

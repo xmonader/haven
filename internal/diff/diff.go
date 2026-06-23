@@ -17,6 +17,7 @@ const (
 	Added    Kind = "added"
 	Modified Kind = "modified"
 	Deleted  Kind = "deleted"
+	Renamed  Kind = "renamed"
 )
 
 // Change is one path that differs between two trees.
@@ -25,6 +26,7 @@ type Change struct {
 	Kind Kind
 	Old  string // old blob hash ("" if added)
 	New  string // new blob hash ("" if deleted)
+	From string // previous path, for renames
 }
 
 // Tree compares two trees (by hash; "" means empty) and returns sorted changes.
@@ -56,8 +58,39 @@ func Maps(a, b map[string]string) []Change {
 			changes = append(changes, Change{Path: path, Kind: Added, New: newH})
 		}
 	}
+	changes = detectRenames(changes)
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
 	return changes
+}
+
+// detectRenames pairs a Deleted and an Added change that share the same blob
+// hash (exact-content rename) into a single Renamed change.
+func detectRenames(changes []Change) []Change {
+	deletes := map[string]int{} // hash -> index of a Deleted change
+	for i, c := range changes {
+		if c.Kind == Deleted && c.Old != "" {
+			deletes[c.Old] = i
+		}
+	}
+	drop := map[int]bool{}
+	var out []Change
+	for i, c := range changes {
+		if drop[i] {
+			continue
+		}
+		if c.Kind == Added {
+			if di, ok := deletes[c.New]; ok && !drop[di] {
+				out = append(out, Change{
+					Path: c.Path, Kind: Renamed, From: changes[di].Path,
+					Old: c.New, New: c.New,
+				})
+				drop[di] = true
+				continue
+			}
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // Unified renders a unified diff between two byte contents with 3 lines of
