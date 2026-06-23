@@ -120,3 +120,5 @@ Single static Go binary; SQLite-backed single-file repos (`.haven/haven.db`, sch
 
 - [`docs/userguide.md`](docs/userguide.md) — practical tour: install, the two-axis model, and walkthroughs of every workflow.
 - [`docs/design.md`](docs/design.md) — full design: the two axes, signed portable policy, secrets, decentralization model, architecture, protocol, milestones, and adversarial review.
+- [`docs/case-study.md`](docs/case-study.md) — engineering case study: the hard parts, key decisions and trade-offs, and war stories.
+- [`docs/deepdive-signed-policy.md`](docs/deepdive-signed-policy.md) — deep dive into the offline-verifiable signed access-policy chain.
