@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haven — privacy & secrets, built into version control</title>
+<meta name="description" content="Haven is a from-scratch version control system where private branches, need-to-know sharing, and encrypted secrets are first-class — enforced by storage and cryptography, not by discipline.">
+<meta property="og:title" content="Haven — a VCS where privacy and secrets are built in">
+<meta property="og:description" content="Private branches that physically refuse to push. Secrets encrypted to whoever can read the branch. A signed, portable access policy the server enforces but can't forge.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z' fill='%232dd4a7'/></svg>">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z" fill="#2dd4a7"/><path d="M9 12l2 2 4-4" stroke="#07120e" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      haven
+    </a>
+    <div class="links">
+      <a href="#why">Why</a>
+      <a href="#model">Model</a>
+      <a href="#features">Features</a>
+      <a href="#start">Quick start</a>
+      <a href="#docs">Docs</a>
+      <a class="btn btn-primary" href="https://github.com/xmonader/haven">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <div>
+      <span class="tag">● single static binary · SQLite · age + Ed25519</span>
+      <h1>Privacy and secrets,<br><span class="grad">built into version control.</span></h1>
+      <p class="lede">Haven is a from-scratch VCS for code that isn't ready for the public world yet. Private branches, need-to-know sharing, and encrypted credentials are first-class — enforced by storage and cryptography, not by discipline.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#start">Get started</a>
+        <a class="btn btn-ghost" href="userguide.md">Read the guide</a>
+      </div>
+    </div>
+    <div class="term" aria-hidden="true">
+      <div class="bar"><i></i><i></i><i></i></div>
+<pre><span class="p">$</span> hv init
+<span class="p">$</span> hv key gen                  <span class="c"># your encryption identity</span>
+<span class="p">$</span> echo "DATABASE_URL=…" &gt; .env
+<span class="p">$</span> hv add . &amp;&amp; hv commit -m "app"
+  <span class="ok">.env encrypted to the branch's readers ✓</span>
+
+<span class="p">$</span> hv haven create scratch     <span class="c"># private branch</span>
+<span class="p">$</span> hv push origin main
+  <span class="ok">secret travels as ciphertext — safe on a public remote</span>
+  <span class="c"># 'scratch' is a haven: push physically refuses to leak it</span></pre>
+    </div>
+  </div>
+</header>
+
+<section id="why">
+  <div class="wrap">
+    <p class="eyebrow">The problem</p>
+    <h2>Mainstream VCS gets two things wrong</h2>
+    <p class="sub">…and you pay for both, every day. Haven makes them structural instead of procedural.</p>
+    <div class="grid cols-3">
+      <div class="card">
+        <span class="ic">📌</span>
+        <h3>Privacy is a sticky note</h3>
+        <p>Every branch is equal; keeping one private means <em>remembering</em> not to push it. One slip and your half-baked work is public.</p>
+      </div>
+      <div class="card">
+        <span class="ic">🔓</span>
+        <h3>Secrets are plaintext</h3>
+        <p>A <code>.env</code> in the working tree becomes a plaintext blob in every clone, backup, and push — forever in history.</p>
+      </div>
+      <div class="card">
+        <span class="ic">🏢</span>
+        <h3>Access lives in a vendor</h3>
+        <p>Who can read what is stored in a hosting vendor's database. It doesn't travel with the repo and isn't verifiable offline.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="model">
+  <div class="wrap">
+    <p class="eyebrow">The model</p>
+    <h2>Confidentiality is two independent axes</h2>
+    <p class="sub"><strong>Access</strong> — who's allowed? (public · restricted · haven), enforced by the server. <strong>Secret</strong> — is it ciphertext on disk? enforced by crypto. They compose, tied by one rule: <em>a secret's decryption recipients are exactly the people who can read its branch.</em></p>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <table>
+        <thead><tr><th></th><th>Mainstream VCS</th><th>Haven</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Privacy</td><td class="mainstream">procedural — "don't push it"</td><td class="haven-cell">a <strong>haven</strong> ref that <code>hv push</code> physically refuses to send</td></tr>
+          <tr><td class="k">Access</td><td class="mainstream">in a vendor's database; doesn't travel</td><td class="haven-cell"><strong>signed policy in the repo</strong>, verifiable offline, server-enforced</td></tr>
+          <tr><td class="k">Secrets</td><td class="mainstream">plaintext <code>.env</code> in every clone</td><td class="haven-cell"><strong>encrypted to whoever can read the branch</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow">What's inside</p>
+    <h2>A complete VCS — with the hard parts done right</h2>
+    <p class="sub">Local history, branching and merging, remotes, a signed access policy, and encrypted secrets. Decentralized like git: every clone is whole, everything works offline.</p>
+    <div class="grid cols-3">
+      <div class="card feature"><h3>📚 Local &amp; history</h3><p><code>add</code> <code>commit</code> <code>status</code> <code>log</code> <code>diff</code> <code>reset</code> <code>restore</code> <code>tag</code> · <code>cherry-pick</code> <code>revert</code> <code>rebase</code> <code>stash</code> <code>bisect</code>. Symlinks tracked.</p></div>
+      <div class="card feature"><h3>🌿 Branches &amp; havens</h3><p><code>branch</code> · <code>haven</code> (private) · <code>publish</code> (one-way graduation) · three-way, rename-aware <code>merge</code> with conflict markers.</p></div>
+      <div class="card feature"><h3>🛰️ Remotes</h3><p><code>serve</code> (HTTP/S) · <code>push</code> (refuses havens) · <code>fetch</code> · <code>pull</code> · <code>clone</code> · <code>sync</code> (carries havens between <em>your</em> machines).</p></div>
+      <div class="card feature"><h3>🔑 Identity &amp; access</h3><p>A portable, <strong>Ed25519-signed policy chain</strong> is the authorization root. Grants are verifiable offline; the server enforces every fetch and ref update.</p></div>
+      <div class="card feature"><h3>🔐 Secrets</h3><p><code>secret add/ref/rotate/status</code>. Files matching a mark are encrypted to the ref's readers on commit; <code>rotate</code> re-keys after a membership change. The store holds only ciphertext.</p></div>
+      <div class="card feature"><h3>🛡️ Hardening</h3><p><code>fsck</code> · <code>gc</code> (grace period) · <code>repack</code> (delta compression). Bodies capped, requests signed with replay protection, schema-versioned DB. Tested under <code>-race</code>.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <p class="eyebrow">Quick start</p>
+    <h2>Sixty seconds to a private, encrypted repo</h2>
+    <p class="sub">One static Go binary, no daemon, no cgo. Build with <code>make build</code>, then:</p>
+    <pre class="code"><span class="c"># new repo (seeds default secret marks: .env, *.pem, …)</span>
+hv init
+hv key gen                       <span class="c"># your encryption identity; you join the members</span>
+echo "DATABASE_URL=…" &gt; .env
+hv add . &amp;&amp; hv commit -m "app"   <span class="c"># .env is encrypted automatically</span>
+
+<span class="c"># private, unready work — push will refuse to leak it</span>
+hv haven create scratch
+hv publish scratch --as feature  <span class="c"># graduate to a public branch when ready</span>
+
+<span class="c"># share with a team over TLS; pin the policy root</span>
+hv remote add origin &lt;url&gt; --kind team
+hv push origin main              <span class="c"># the secret travels as ciphertext</span>
+hv serve --kind team --policy-root &lt;root-key&gt; --tls-cert cert.pem --tls-key key.pem</pre>
+  </div>
+</section>
+
+<section id="attacker">
+  <div class="wrap">
+    <p class="eyebrow">Threat model</p>
+    <h2>What copying the repo gives an attacker</h2>
+    <p class="sub">Copying the repo never unlocks secrets. Private keys live in <code>~/.config/haven/identity</code> — never in the repo, never on a server.</p>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <table>
+        <thead><tr><th>In the clone</th><th>Form</th><th>They get</th></tr></thead>
+        <tbody>
+          <tr><td class="k">unmarked code</td><td class="mainstream">plaintext</td><td>the code (as in git)</td></tr>
+          <tr><td class="k">policy (keyring, grants)</td><td class="mainstream">public keys + signatures</td><td class="mainstream">nothing to unlock with</td></tr>
+          <tr><td class="k">secret files / branches</td><td class="haven-cell">ciphertext</td><td class="danger">garbage without an authorized private key</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <p class="eyebrow">Security &amp; status</p>
+    <h2>Honest about where it stands</h2>
+    <div class="status">
+      <h3>A working VCS, hardened — not yet externally audited</h3>
+      <p>Haven enforces confidentiality with cryptography and access with a signed policy the server can enforce but not forge. The crypto/data path is hardened — private secret-file permissions, decrypted-content integrity checks, atomic writes, request signing with replay protection, bounded resource use — and tested under the race detector.</p>
+      <p><strong>It has not had an external security audit.</strong> Suitable for solo and small-trusted-team use over TLS; get an audit before relying on it as the sole control for high-value secrets in a hostile environment.</p>
+      <div>
+        <span class="pill">SHA-256 content addressing</span>
+        <span class="pill">age (X25519) encryption</span>
+        <span class="pill">Ed25519 signed policy</span>
+        <span class="pill">zlib + delta storage</span>
+        <span class="pill">Linux · macOS · Windows</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="docs">
+  <div class="wrap">
+    <p class="eyebrow">Documentation</p>
+    <h2>Go deeper</h2>
+    <p class="sub">Practical guides and the full design — including the adversarial review the system was built against.</p>
+    <div class="grid cols-2">
+      <a class="card doc" href="userguide.md"><h3>User guide <span class="arrow">→</span></h3><p>Install, the two-axis model, and walkthroughs of every workflow.</p></a>
+      <a class="card doc" href="design.md"><h3>Design <span class="arrow">→</span></h3><p>The two axes, signed portable policy, secrets, protocol, storage, and milestones.</p></a>
+      <a class="card doc" href="deepdive-signed-policy.md"><h3>Signed-policy deep dive <span class="arrow">→</span></h3><p>How the offline-verifiable access-policy chain works and why it can't be forged.</p></a>
+      <a class="card doc" href="threat-model.md"><h3>Threat model <span class="arrow">→</span></h3><p>What Haven defends against, its trust boundaries, and known limitations.</p></a>
+      <a class="card doc" href="audit-readiness.md"><h3>Audit readiness <span class="arrow">→</span></h3><p>Orientation for an external reviewer: controls→code map and attacks to attempt.</p></a>
+      <a class="card doc" href="case-study.md"><h3>Engineering case study <span class="arrow">→</span></h3><p>The hard parts, key decisions and trade-offs, and war stories.</p></a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>Haven — a privacy-first VCS. <a href="https://github.com/xmonader/haven">Source on GitHub</a>.</div>
+    <div>MIT © 2026 xmonader</div>
+  </div>
+</footer>
+
+</body>
+</html>
