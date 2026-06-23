@@ -204,6 +204,38 @@ func (s *Store) AllHashes() ([]string, error) {
 	return out, rows.Err()
 }
 
+// Meta is lightweight per-object metadata for maintenance tasks (repack),
+// gathered without loading full content.
+type Meta struct {
+	Hash    string
+	Type    Type
+	Size    int // logical payload size
+	IsDelta bool
+}
+
+// Metas returns metadata for every object, reading only the first content byte
+// to classify delta vs whole — never the whole payload.
+func (s *Store) Metas() ([]Meta, error) {
+	rows, err := s.db.Query(`SELECT hash, type, size, substr(content,1,1) FROM objects`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Meta
+	for rows.Next() {
+		var m Meta
+		var t string
+		var tag []byte
+		if err := rows.Scan(&m.Hash, &t, &m.Size, &tag); err != nil {
+			return nil, err
+		}
+		m.Type = Type(t)
+		m.IsDelta = store.IsDelta(tag)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // Delete removes an object by hash.
 func (s *Store) Delete(hash string) error {
 	_, err := s.db.Exec(`DELETE FROM objects WHERE hash=?`, hash)

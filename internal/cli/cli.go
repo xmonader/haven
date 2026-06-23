@@ -52,6 +52,7 @@ var registry = []Command{
 	cmdSecret,
 	cmdFsck,
 	cmdGc,
+	cmdRepack,
 	cmdVersion,
 }
 

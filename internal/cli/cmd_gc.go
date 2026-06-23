@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"haven/internal/object"
 	"haven/internal/policy"
 	"haven/internal/ref"
 )
@@ -53,20 +54,9 @@ func runGc(args []string, out, errOut io.Writer) error {
 
 	// Delta storage is invisible to the object graph: a reachable object may be
 	// stored as a delta against a base that nothing else references. That base
-	// must be kept, or deleting it would corrupt the reachable object. (repack
-	// keeps chains at depth 1, so bases are themselves full objects.)
-	reachableNow := make([]string, 0, len(reachable))
-	for h := range reachable {
-		reachableNow = append(reachableNow, h)
-	}
-	for _, h := range reachableNow {
-		base, ok, err := store.DeltaBase(h)
-		if err != nil {
-			return err
-		}
-		if ok {
-			reachable[base] = true
-		}
+	// must be kept, or deleting it would corrupt the reachable object.
+	if err := addDeltaBases(store, reachable); err != nil {
+		return err
 	}
 
 	all, err := store.AllHashes()
@@ -83,5 +73,25 @@ func runGc(args []string, out, errOut io.Writer) error {
 		}
 	}
 	fmt.Fprintf(out, "removed %d unreachable object(s); %d kept\n", removed, len(reachable))
+	return nil
+}
+
+// addDeltaBases extends a reachable set with the base of every reachable object
+// that is stored as a delta. Bases are full objects (repack keeps chains at
+// depth 1), so one pass suffices.
+func addDeltaBases(store *object.Store, reachable map[string]bool) error {
+	keys := make([]string, 0, len(reachable))
+	for h := range reachable {
+		keys = append(keys, h)
+	}
+	for _, h := range keys {
+		base, ok, err := store.DeltaBase(h)
+		if err != nil {
+			return err
+		}
+		if ok {
+			reachable[base] = true
+		}
+	}
 	return nil
 }
