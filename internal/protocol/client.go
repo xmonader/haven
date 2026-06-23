@@ -39,18 +39,22 @@ func (c *Client) WithAuth(pub string, priv ed25519.PrivateKey) *Client {
 	return c
 }
 
-// do builds, signs, and sends a request.
-func (c *Client) do(method, path string, body io.Reader, contentType string) (*http.Response, error) {
-	req, err := http.NewRequest(method, c.BaseURL+path, body)
+// do builds, signs (over method+path+time+body), and sends a request.
+func (c *Client) do(method, path string, body []byte, headers map[string]string) (*http.Response, error) {
+	var r io.Reader
+	if body != nil {
+		r = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, c.BaseURL+path, r)
 	if err != nil {
 		return nil, err
 	}
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	if c.Auth != nil {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
-		sig := ed25519.Sign(c.Auth.Priv, canonicalRequest(method, path, ts))
+		sig := ed25519.Sign(c.Auth.Priv, canonicalRequest(method, path, ts, bodyHash(body)))
 		req.Header.Set(HdrPub, c.Auth.Pub)
 		req.Header.Set(HdrTime, ts)
 		req.Header.Set(HdrSig, hex.EncodeToString(sig))
@@ -74,7 +78,7 @@ func (c *Client) Refs() ([]RefInfo, error) {
 
 // GetObject downloads one object.
 func (c *Client) GetObject(hash string) (object.Type, []byte, error) {
-	resp, err := c.do(http.MethodGet, "/objects/"+hash, nil, "")
+	resp, err := c.do(http.MethodGet, "/objects/"+hash, nil, nil)
 	if err != nil {
 		return "", nil, err
 	}
@@ -91,13 +95,7 @@ func (c *Client) GetObject(hash string) (object.Type, []byte, error) {
 
 // PutObject uploads one object.
 func (c *Client) PutObject(hash string, typ object.Type, content []byte) error {
-	req, err := http.NewRequest(http.MethodPut, c.BaseURL+"/objects/"+hash, bytes.NewReader(content))
-	if err != nil {
-		return err
-	}
-	req.Header.Set(HeaderType, string(typ))
-	c.signInto(req, http.MethodPut, "/objects/"+hash)
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(http.MethodPut, "/objects/"+hash, content, map[string]string{HeaderType: string(typ)})
 	if err != nil {
 		return err
 	}
@@ -111,7 +109,7 @@ func (c *Client) PutObject(hash string, typ object.Type, content []byte) error {
 // UpdateRef performs a conditional ref update on the remote.
 func (c *Client) UpdateRef(u RefUpdate) error {
 	body, _ := json.Marshal(u)
-	resp, err := c.do(http.MethodPost, "/refs", bytes.NewReader(body), "application/json")
+	resp, err := c.do(http.MethodPost, "/refs", body, map[string]string{"Content-Type": "application/json"})
 	if err != nil {
 		return err
 	}
@@ -123,7 +121,7 @@ func (c *Client) UpdateRef(u RefUpdate) error {
 }
 
 func (c *Client) getJSON(path string, v any) error {
-	resp, err := c.do(http.MethodGet, path, nil, "")
+	resp, err := c.do(http.MethodGet, path, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -132,18 +130,6 @@ func (c *Client) getJSON(path string, v any) error {
 		return fmt.Errorf("GET %s: %s", path, resp.Status)
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
-}
-
-// signInto adds auth headers to a pre-built request.
-func (c *Client) signInto(req *http.Request, method, path string) {
-	if c.Auth == nil {
-		return
-	}
-	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig := ed25519.Sign(c.Auth.Priv, canonicalRequest(method, path, ts))
-	req.Header.Set(HdrPub, c.Auth.Pub)
-	req.Header.Set(HdrTime, ts)
-	req.Header.Set(HdrSig, hex.EncodeToString(sig))
 }
 
 func statusBody(resp *http.Response) string {

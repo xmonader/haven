@@ -39,39 +39,40 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// authActor authenticates a request against the policy keyring. It returns the
-// actor name ("" for anonymous), whether the request is allowed to proceed at
-// all, and whether a present signature was valid. Missing auth headers are
-// anonymous (limited to public access); a present-but-invalid signature is
-// rejected.
-func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, ok bool) {
+// authActor reads and authenticates a request against the policy keyring. It
+// returns the actor name ("" for anonymous), the buffered request body (so the
+// handler can reuse it — the signature covers it), and whether the request is
+// allowed to proceed. Missing auth headers are anonymous (public access only);
+// a present-but-invalid signature is rejected.
+func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, body []byte, ok bool) {
+	body, _ = io.ReadAll(r.Body)
 	if p == nil {
-		return "", true // open repo: no policy, no enforcement
+		return "", body, true // open repo: no policy, no enforcement
 	}
 	pub := r.Header.Get(HdrPub)
 	ts := r.Header.Get(HdrTime)
 	sigHex := r.Header.Get(HdrSig)
 	if pub == "" && ts == "" && sigHex == "" {
-		return "", true // anonymous: public access only
+		return "", body, true // anonymous: public access only
 	}
 	tsec, err := strconv.ParseInt(ts, 10, 64)
 	if err != nil || abs(time.Now().Unix()-tsec) > MaxSkewSeconds {
-		return "", false
+		return "", body, false
 	}
 	pubBytes, err := hex.DecodeString(pub)
 	if err != nil || len(pubBytes) != ed25519.PublicKeySize {
-		return "", false
+		return "", body, false
 	}
 	sig, err := hex.DecodeString(sigHex)
-	if err != nil || !ed25519.Verify(pubBytes, canonicalRequest(r.Method, r.URL.Path, ts), sig) {
-		return "", false
+	if err != nil || !ed25519.Verify(pubBytes, canonicalRequest(r.Method, r.URL.Path, ts, bodyHash(body)), sig) {
+		return "", body, false
 	}
 	for name, m := range p.Keyring {
 		if m.Sign == pub && m.Status != "revoked" {
-			return name, true
+			return name, body, true
 		}
 	}
-	return "", false // signed by an unknown/revoked key
+	return "", body, false // signed by an unknown/revoked key
 }
 
 func (s *Server) getInfo(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +81,7 @@ func (s *Server) getInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getRefs(w http.ResponseWriter, r *http.Request) {
 	p, _ := policy.Load(s.db, s.store)
-	actor, ok := s.authActor(p, r)
+	actor, _, ok := s.authActor(p, r)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -101,19 +102,19 @@ func (s *Server) getRefs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) postRefs(w http.ResponseWriter, r *http.Request) {
+	p, _ := policy.Load(s.db, s.store)
+	actor, body, ok := s.authActor(p, r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	var u RefUpdate
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	if err := json.Unmarshal(body, &u); err != nil {
 		http.Error(w, "bad request: "+err.Error(), 400)
 		return
 	}
 	if s.kind == KindTeam && u.Visibility == ref.Private {
 		http.Error(w, "team server refuses private refs", http.StatusForbidden)
-		return
-	}
-	p, _ := policy.Load(s.db, s.store)
-	actor, ok := s.authActor(p, r)
-	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	// Policy updates: verify the incoming signed chain rather than a write grant.
@@ -156,7 +157,7 @@ func (s *Server) verifyIncomingPolicy(head string, _ *policy.Policy) error {
 func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	p, _ := policy.Load(s.db, s.store)
-	actor, ok := s.authActor(p, r)
+	actor, _, ok := s.authActor(p, r)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -185,13 +186,9 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 	p, _ := policy.Load(s.db, s.store)
 	// Uploading objects requires authentication once a policy exists (anonymous
 	// callers may read public data but not write into the store).
-	if actor, ok := s.authActor(p, r); !ok || (p != nil && actor == "") {
+	actor, content, ok := s.authActor(p, r)
+	if !ok || (p != nil && actor == "") {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	content, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), 400)
 		return
 	}
 	if object.Type(typ) == object.Secret {

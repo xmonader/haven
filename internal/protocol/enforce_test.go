@@ -1,8 +1,11 @@
 package protocol
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -64,6 +67,32 @@ func TestAnonReadsPublicRefHidesRestricted(t *testing.T) {
 	// refs/policy is always visible so clients can verify the chain.
 	if !saw[policy.Ref] {
 		t.Error("policy ref should always be visible")
+	}
+}
+
+// tamperTransport rewrites a request body after the client has signed it,
+// simulating a man-in-the-middle altering a signed request.
+type tamperTransport struct {
+	base http.RoundTripper
+	with []byte
+}
+
+func (t tamperTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method == http.MethodPost {
+		req.Body = io.NopCloser(bytes.NewReader(t.with))
+		req.ContentLength = int64(len(t.with))
+	}
+	return t.base.RoundTrip(req)
+}
+
+func TestTamperedBodyRejected(t *testing.T) {
+	admin, _, _ := newServerWithPolicy(t)
+	admin.HTTP = &http.Client{Transport: tamperTransport{
+		base: http.DefaultTransport,
+		with: []byte(`{"name":"refs/branches/main","visibility":"public","target":"evil"}`),
+	}}
+	if err := admin.UpdateRef(RefUpdate{Name: "refs/branches/main", Visibility: ref.Public, Target: "v1"}); err == nil {
+		t.Fatal("a tampered request body must invalidate the signature")
 	}
 }
 
