@@ -3,3 +3,6 @@
 *.db
 *.db-wal
 *.db-shm
+coverage.out
+/dist/
+*.swp

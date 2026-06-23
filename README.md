@@ -107,12 +107,22 @@ Secrets encrypt to a ref's **current readers** (not the whole keyring); see `doc
 ## Install & develop
 
 ```bash
-make build        # build the hv binary
+make build        # build ./hv (version injected from `git describe`)
 make test         # run tests
-make lint         # static analysis
+make race         # race detector, uncached — the pre-release gate
+make cover        # coverage summary
+make vet          # static analysis
+make dist         # cross-compiled static release binaries (linux/darwin × amd64/arm64)
+./hv version      # version + platform/toolchain
 ```
 
-Single static Go binary; SQLite-backed single-file repos (`.haven/haven.db`, schema-versioned, objects zlib-compressed at rest); SHA-256 objects; `age` (X25519) encryption and Ed25519 signatures.
+Single static Go binary; SQLite-backed single-file repos (`.haven/haven.db`, schema-versioned, objects zlib-compressed at rest); SHA-256 objects; `age` (X25519) encryption and Ed25519 signatures. CI (build/vet/gofmt/`-race`/coverage/fuzz) runs on Linux and macOS; tagged commits publish release binaries.
+
+When serving to others, pin the policy root so an un-bootstrapped server can't be claimed by an arbitrary key, and run behind TLS:
+
+```bash
+hv serve --kind team --policy-root <root-sign-key-hex> --tls-cert cert.pem --tls-key key.pem
+```
 
 ---
 
@@ -122,3 +132,21 @@ Single static Go binary; SQLite-backed single-file repos (`.haven/haven.db`, sch
 - [`docs/design.md`](docs/design.md) — full design: the two axes, signed portable policy, secrets, decentralization model, architecture, protocol, milestones, and adversarial review.
 - [`docs/case-study.md`](docs/case-study.md) — engineering case study: the hard parts, key decisions and trade-offs, and war stories.
 - [`docs/deepdive-signed-policy.md`](docs/deepdive-signed-policy.md) — deep dive into the offline-verifiable signed access-policy chain.
+- [`docs/threat-model.md`](docs/threat-model.md) — what Haven defends against, its trust boundaries, and known limitations.
+- [`SECURITY.md`](SECURITY.md) — how to report a vulnerability (private disclosure).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup and the bar for changes.
+
+## Security & status
+
+Haven enforces confidentiality with cryptography and access with a signed policy
+the server can enforce but not forge. The crypto/data path is hardened (private
+secret-file permissions, decrypted-content integrity checks, atomic writes,
+request signing with replay protection, bounded resource use) and tested under
+the race detector. **It has not had an external security audit** — suitable for
+solo and small-trusted-team use over TLS; get an audit before relying on it as
+the sole control for high-value secrets in a hostile environment. See
+[`docs/threat-model.md`](docs/threat-model.md).
+
+## License
+
+[MIT](LICENSE) © 2026 xmonader.
