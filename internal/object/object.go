@@ -5,10 +5,15 @@ package object
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"haven/internal/hash"
 	"haven/internal/store"
 )
+
+// now returns the current unix time; the object creation timestamp used for the
+// gc grace period.
+func now() int64 { return time.Now().Unix() }
 
 // Type is an object kind.
 type Type string
@@ -38,8 +43,8 @@ func NewStore(db *sql.DB) *Store { return &Store{db: db} }
 func (s *Store) Put(t Type, payload []byte) (string, error) {
 	h := hash.Of(string(t), payload)
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO objects(hash, type, size, content) VALUES(?,?,?,?)`,
-		h, string(t), len(payload), store.Encode(payload),
+		`INSERT OR IGNORE INTO objects(hash, type, size, content, created_at) VALUES(?,?,?,?,?)`,
+		h, string(t), len(payload), store.Encode(payload), now(),
 	)
 	if err != nil {
 		return "", fmt.Errorf("put %s %s: %w", t, h, err)
@@ -53,8 +58,8 @@ func (s *Store) Put(t Type, payload []byte) (string, error) {
 // cannot recompute the hash. Idempotent.
 func (s *Store) PutRaw(hash string, t Type, content []byte) error {
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO objects(hash, type, size, content) VALUES(?,?,?,?)`,
-		hash, string(t), len(content), store.Encode(content),
+		`INSERT OR IGNORE INTO objects(hash, type, size, content, created_at) VALUES(?,?,?,?,?)`,
+		hash, string(t), len(content), store.Encode(content), now(),
 	)
 	if err != nil {
 		return fmt.Errorf("put raw %s %s: %w", t, hash, err)
@@ -81,9 +86,9 @@ func (s *Store) ReplaceContent(h string, content []byte) error {
 // secret must replace the stored bytes rather than ignore them.
 func (s *Store) PutSecret(hash string, content []byte) error {
 	_, err := s.db.Exec(
-		`INSERT INTO objects(hash, type, size, content) VALUES(?,?,?,?)
+		`INSERT INTO objects(hash, type, size, content, created_at) VALUES(?,?,?,?,?)
 		 ON CONFLICT(hash) DO UPDATE SET content=excluded.content, size=excluded.size`,
-		hash, string(Secret), len(content), store.Encode(content),
+		hash, string(Secret), len(content), store.Encode(content), now(),
 	)
 	if err != nil {
 		return fmt.Errorf("put secret %s: %w", hash, err)
@@ -207,16 +212,17 @@ func (s *Store) AllHashes() ([]string, error) {
 // Meta is lightweight per-object metadata for maintenance tasks (repack),
 // gathered without loading full content.
 type Meta struct {
-	Hash    string
-	Type    Type
-	Size    int // logical payload size
-	IsDelta bool
+	Hash      string
+	Type      Type
+	Size      int // logical payload size
+	IsDelta   bool
+	CreatedAt int64 // unix time the row was written (0 for pre-v3 objects)
 }
 
 // Metas returns metadata for every object, reading only the first content byte
 // to classify delta vs whole — never the whole payload.
 func (s *Store) Metas() ([]Meta, error) {
-	rows, err := s.db.Query(`SELECT hash, type, size, substr(content,1,1) FROM objects`)
+	rows, err := s.db.Query(`SELECT hash, type, size, substr(content,1,1), created_at FROM objects`)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +232,7 @@ func (s *Store) Metas() ([]Meta, error) {
 		var m Meta
 		var t string
 		var tag []byte
-		if err := rows.Scan(&m.Hash, &t, &m.Size, &tag); err != nil {
+		if err := rows.Scan(&m.Hash, &t, &m.Size, &tag, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		m.Type = Type(t)

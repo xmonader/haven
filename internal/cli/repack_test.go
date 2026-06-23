@@ -257,3 +257,39 @@ func TestRepackAndGcRefuseWhenLocked(t *testing.T) {
 		t.Fatalf("gc should fail while repo is locked:\n%s", out)
 	}
 }
+
+// TestGcGracePeriodSparesRecentObjects proves the gc/commit-race mitigation:
+// freshly-created unreachable objects are spared by the default grace period,
+// but --prune=now reclaims them.
+func TestGcGracePeriodSparesRecentObjects(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "config", "user.name", "T")
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n"), 0o644)
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-m", "base")
+
+	// Unreachable objects, just created.
+	run(t, dir, "haven", "create", "junk")
+	run(t, dir, "haven", "switch", "junk")
+	os.WriteFile(filepath.Join(dir, "g.txt"), []byte("throwaway\n"), 0o644)
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-m", "junk")
+	run(t, dir, "branch", "switch", "main")
+	run(t, dir, "haven", "delete", "junk")
+
+	// Default gc must spare them (created seconds ago) and say so.
+	out, code := run(t, dir, "gc")
+	if code != 0 {
+		t.Fatalf("gc failed:\n%s", out)
+	}
+	if !strings.Contains(out, "removed 0 ") || !strings.Contains(out, "spared") {
+		t.Fatalf("default gc should spare recent objects:\n%s", out)
+	}
+
+	// --prune=now reclaims them.
+	out, code = run(t, dir, "gc", "--prune=now")
+	if code != 0 || strings.Contains(out, "removed 0 ") {
+		t.Fatalf("gc --prune=now should reclaim:\n%s", out)
+	}
+}

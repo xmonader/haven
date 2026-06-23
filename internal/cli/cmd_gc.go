@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
+	"time"
 
 	"haven/internal/lock"
 	"haven/internal/object"
@@ -69,21 +71,78 @@ func runGc(args []string, out, errOut io.Writer) error {
 		return err
 	}
 
-	all, err := store.AllHashes()
+	grace, err := parsePruneGrace(args)
 	if err != nil {
 		return err
 	}
-	removed := 0
-	for _, h := range all {
-		if !reachable[h] {
-			if err := store.Delete(h); err != nil {
-				return err
-			}
-			removed++
-		}
+	cutoff := time.Now().Unix() - int64(grace.Seconds())
+
+	metas, err := store.Metas()
+	if err != nil {
+		return err
 	}
-	fmt.Fprintf(out, "removed %d unreachable object(s); %d kept\n", removed, len(reachable))
+	removed, spared := 0, 0
+	for _, m := range metas {
+		if reachable[m.Hash] {
+			continue
+		}
+		// Grace period: never prune a recently-written object. This closes the
+		// race where gc sweeps the objects of an in-flight commit/push before its
+		// ref update lands. Use --prune=now to override.
+		if m.CreatedAt > cutoff {
+			spared++
+			continue
+		}
+		if err := store.Delete(m.Hash); err != nil {
+			return err
+		}
+		removed++
+	}
+	if spared > 0 {
+		fmt.Fprintf(out, "removed %d unreachable object(s); %d kept; %d recent object(s) spared by grace period (--prune=now to force)\n", removed, len(reachable), spared)
+	} else {
+		fmt.Fprintf(out, "removed %d unreachable object(s); %d kept\n", removed, len(reachable))
+	}
 	return nil
+}
+
+// gcDefaultGrace is how long an unreachable object is protected from pruning
+// after it was written, so concurrent writers' not-yet-referenced objects are
+// safe. Mirrors git's default prune-expiry stance (conservative, not instant).
+const gcDefaultGrace = 10 * time.Minute
+
+// parsePruneGrace reads an optional `--prune <when>` / `--prune=<when>` argument.
+// <when> is "now" (no grace, prune everything unreachable) or a Go duration
+// (e.g. "2h", "30m"). Absent → gcDefaultGrace.
+func parsePruneGrace(args []string) (time.Duration, error) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		var val string
+		switch {
+		case a == "--prune":
+			if i+1 >= len(args) {
+				return 0, fmt.Errorf("--prune requires a value (now or a duration like 2h)")
+			}
+			val = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--prune="):
+			val = strings.TrimPrefix(a, "--prune=")
+		default:
+			continue
+		}
+		if val == "now" {
+			return 0, nil
+		}
+		d, err := time.ParseDuration(val)
+		if err != nil {
+			return 0, fmt.Errorf("--prune: invalid duration %q (use now or e.g. 2h)", val)
+		}
+		if d < 0 {
+			return 0, fmt.Errorf("--prune: duration must not be negative")
+		}
+		return d, nil
+	}
+	return gcDefaultGrace, nil
 }
 
 // addDeltaBases extends a reachable set with the base of every reachable object

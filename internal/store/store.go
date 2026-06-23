@@ -67,13 +67,53 @@ CREATE TABLE IF NOT EXISTS seen_nonces (
 // SchemaVersion is the layout this binary speaks. It is stamped into the
 // database's PRAGMA user_version on open. A database stamped higher than this
 // was written by a newer hv and is refused rather than silently corrupted.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // migrations transform the database from version N to N+1. migrations[n] is the
 // step that upgrades a v(n) database to v(n+1). The base `schema` above defines
 // v1, so the first entry is migrations[1]: v1 -> v2.
 var migrations = map[int]func(*sql.DB) error{
 	1: migrateV2Compress,
+	2: migrateV3CreatedAt,
+}
+
+// migrateV3CreatedAt adds an object creation timestamp so gc can apply a grace
+// period (never prune freshly-written objects, closing the race where gc sweeps
+// an in-flight commit/push before its ref update lands). Existing rows default
+// to 0 (epoch) — they predate this binary and are immediately prune-eligible.
+// Idempotent: if the column is already present (e.g. a re-run upgrade), it does
+// nothing rather than failing on a duplicate column.
+func migrateV3CreatedAt(db *sql.DB) error {
+	has, err := columnExists(db, "objects", "created_at")
+	if err != nil {
+		return err
+	}
+	if has {
+		return nil
+	}
+	_, err = db.Exec(`ALTER TABLE objects ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`)
+	return err
+}
+
+// columnExists reports whether table has a column named col.
+func columnExists(db *sql.DB, table, col string) (bool, error) {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == col {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // migrateV2Compress re-stores every existing object through the v2 codec

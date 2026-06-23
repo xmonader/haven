@@ -25,7 +25,9 @@ func TestGcReclaimsUnreachableObjects(t *testing.T) {
 	run(t, dir, "branch", "switch", "main")
 	run(t, dir, "haven", "delete", "junk")
 
-	out, code := run(t, dir, "gc")
+	// --prune=now: the junk was just created, so the default grace period would
+	// otherwise spare it; this test verifies reclamation specifically.
+	out, code := run(t, dir, "gc", "--prune=now")
 	if code != 0 {
 		t.Fatalf("gc failed:\n%s", out)
 	}
