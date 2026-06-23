@@ -67,12 +67,55 @@ CREATE TABLE IF NOT EXISTS seen_nonces (
 // SchemaVersion is the layout this binary speaks. It is stamped into the
 // database's PRAGMA user_version on open. A database stamped higher than this
 // was written by a newer hv and is refused rather than silently corrupted.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // migrations transform the database from version N to N+1. migrations[n] is the
 // step that upgrades a v(n) database to v(n+1). The base `schema` above defines
-// v1, so the first entry (if any) is migrations[1]: v1 -> v2.
-var migrations = map[int]func(*sql.DB) error{}
+// v1, so the first entry is migrations[1]: v1 -> v2.
+var migrations = map[int]func(*sql.DB) error{
+	1: migrateV2Compress,
+}
+
+// migrateV2Compress re-stores every existing object through the v2 codec
+// (one-byte tag + optional zlib). v1 rows hold bare payloads; rewriting them
+// makes all rows self-describing so Decode works uniformly. The whole repo's
+// objects are buffered once (one-time cost, bounded by repo size) and rewritten
+// in a single transaction so an interrupted upgrade leaves the DB at v1.
+func migrateV2Compress(db *sql.DB) error {
+	rows, err := db.Query(`SELECT hash, content FROM objects`)
+	if err != nil {
+		return err
+	}
+	type row struct {
+		h string
+		c []byte
+	}
+	var all []row
+	for rows.Next() {
+		var h string
+		var c []byte
+		if err := rows.Scan(&h, &c); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, row{h, c})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, r := range all {
+		if _, err := tx.Exec(`UPDATE objects SET content=? WHERE hash=?`, Encode(r.c), r.h); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
 // Open opens (creating if needed) the SQLite database at path and brings its
 // schema up to SchemaVersion. WAL mode and foreign keys are enabled for safe

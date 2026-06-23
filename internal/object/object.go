@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"haven/internal/hash"
+	"haven/internal/store"
 )
 
 // Type is an object kind.
@@ -38,7 +39,7 @@ func (s *Store) Put(t Type, payload []byte) (string, error) {
 	h := hash.Of(string(t), payload)
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO objects(hash, type, size, content) VALUES(?,?,?,?)`,
-		h, string(t), len(payload), payload,
+		h, string(t), len(payload), store.Encode(payload),
 	)
 	if err != nil {
 		return "", fmt.Errorf("put %s %s: %w", t, h, err)
@@ -53,7 +54,7 @@ func (s *Store) Put(t Type, payload []byte) (string, error) {
 func (s *Store) PutRaw(hash string, t Type, content []byte) error {
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO objects(hash, type, size, content) VALUES(?,?,?,?)`,
-		hash, string(t), len(content), content,
+		hash, string(t), len(content), store.Encode(content),
 	)
 	if err != nil {
 		return fmt.Errorf("put raw %s %s: %w", t, hash, err)
@@ -67,7 +68,7 @@ func (s *Store) PutRaw(hash string, t Type, content []byte) error {
 // the hash is absent. (PutRaw is INSERT OR IGNORE and cannot rewrite, by design,
 // for idempotent wire receipt.)
 func (s *Store) ReplaceContent(h string, content []byte) error {
-	_, err := s.db.Exec(`UPDATE objects SET content=?, size=? WHERE hash=?`, content, len(content), h)
+	_, err := s.db.Exec(`UPDATE objects SET content=?, size=? WHERE hash=?`, store.Encode(content), len(content), h)
 	if err != nil {
 		return fmt.Errorf("replace content %s: %w", h, err)
 	}
@@ -82,7 +83,7 @@ func (s *Store) PutSecret(hash string, content []byte) error {
 	_, err := s.db.Exec(
 		`INSERT INTO objects(hash, type, size, content) VALUES(?,?,?,?)
 		 ON CONFLICT(hash) DO UPDATE SET content=excluded.content, size=excluded.size`,
-		hash, string(Secret), len(content), content,
+		hash, string(Secret), len(content), store.Encode(content),
 	)
 	if err != nil {
 		return fmt.Errorf("put secret %s: %w", hash, err)
@@ -93,13 +94,17 @@ func (s *Store) PutSecret(hash string, content []byte) error {
 // Get returns the type and payload of an object.
 func (s *Store) Get(h string) (Type, []byte, error) {
 	var t string
-	var payload []byte
-	err := s.db.QueryRow(`SELECT type, content FROM objects WHERE hash=?`, h).Scan(&t, &payload)
+	var stored []byte
+	err := s.db.QueryRow(`SELECT type, content FROM objects WHERE hash=?`, h).Scan(&t, &stored)
 	if err == sql.ErrNoRows {
 		return "", nil, fmt.Errorf("object %s: not found", h)
 	}
 	if err != nil {
 		return "", nil, err
+	}
+	payload, err := store.Decode(stored)
+	if err != nil {
+		return "", nil, fmt.Errorf("object %s: %w", h, err)
 	}
 	return Type(t), payload, nil
 }
@@ -113,9 +118,13 @@ func (s *Store) Each(fn func(hash string, t Type, content []byte) error) error {
 	defer rows.Close()
 	for rows.Next() {
 		var h, t string
-		var content []byte
-		if err := rows.Scan(&h, &t, &content); err != nil {
+		var stored []byte
+		if err := rows.Scan(&h, &t, &stored); err != nil {
 			return err
+		}
+		content, err := store.Decode(stored)
+		if err != nil {
+			return fmt.Errorf("object %s: %w", h, err)
 		}
 		if err := fn(h, Type(t), content); err != nil {
 			return err
