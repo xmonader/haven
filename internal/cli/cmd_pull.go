@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 
-	"haven/internal/protocol"
 	"haven/internal/ref"
 	"haven/internal/remote"
 )
@@ -32,7 +31,7 @@ func runPull(args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client := protocol.NewClient(rm.URL)
+	client := authedClient(rm.URL)
 	if err := fetchInto(r, store, client, remoteName, out); err != nil {
 		return err
 	}

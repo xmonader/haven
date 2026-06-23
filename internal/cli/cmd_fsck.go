@@ -6,6 +6,7 @@ import (
 
 	"haven/internal/hash"
 	"haven/internal/object"
+	"haven/internal/policy"
 	"haven/internal/ref"
 )
 
@@ -48,13 +49,21 @@ func runFsck(args []string, out, errOut io.Writer) error {
 		return err
 	}
 	for _, rf := range refs {
-		if rf.Target == "" {
+		if rf.Target == "" || rf.Visibility == ref.Policy {
 			continue
 		}
 		if _, err := store.Reachable(rf.Target); err != nil {
 			problems++
 			fmt.Fprintf(out, "ref %s: unresolvable (%v)\n", rf.Name, err)
 		}
+	}
+
+	// If a policy exists, its signature chain must verify.
+	if n, err := policy.VerifyChain(r.DB, store); err != nil {
+		problems++
+		fmt.Fprintf(out, "policy chain invalid: %v\n", err)
+	} else if n > 0 {
+		fmt.Fprintf(out, "policy chain: %d version(s) verified\n", n)
 	}
 
 	fmt.Fprintf(out, "checked %d objects (%d encrypted secrets), %d refs\n", checked, secrets, len(refs))

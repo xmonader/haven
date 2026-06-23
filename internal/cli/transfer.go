@@ -2,13 +2,27 @@ package cli
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"haven/internal/object"
+	"haven/internal/policy"
 	"haven/internal/protocol"
 	"haven/internal/ref"
 )
+
+// policyParent extracts the parent hash from a serialized policy object,
+// without depending on the policy package's full type.
+func policyParent(content []byte) string {
+	var p struct {
+		Parent string `json:"parent"`
+	}
+	if err := json.Unmarshal(content, &p); err != nil {
+		return ""
+	}
+	return p.Parent
+}
 
 // remoteTrackingRef maps a remote ref name to its local tracking ref.
 // refs/branches/main on remote "origin" -> refs/remotes/origin/branches/main.
@@ -99,9 +113,41 @@ func downloadReachable(c *protocol.Client, store *object.Store, target string) e
 			for _, e := range entries {
 				queue = append(queue, e.Hash)
 			}
+		case object.Policy:
+			if parent := policyParent(content); parent != "" {
+				queue = append(queue, parent)
+			}
 		}
 	}
 	return nil
+}
+
+// pushPolicy uploads the entire signed policy chain and updates the remote's
+// policy ref, so access policy travels with the repository.
+func pushPolicy(c *protocol.Client, db *sql.DB, store *object.Store, remoteTargets map[string]string) error {
+	head, err := ref.Resolve(db, policy.Ref)
+	if err != nil || head == "" {
+		return err
+	}
+	chain, err := policy.ChainHashes(db, store)
+	if err != nil {
+		return err
+	}
+	for h := range chain {
+		typ, content, err := store.Get(h)
+		if err != nil {
+			return err
+		}
+		if err := c.PutObject(h, typ, content); err != nil {
+			return err
+		}
+	}
+	return c.UpdateRef(protocol.RefUpdate{
+		Name:       policy.Ref,
+		Visibility: ref.Policy,
+		Target:     head,
+		OldTarget:  remoteTargets[policy.Ref],
+	})
 }
 
 // remoteRefMap fetches the remote ref listing as name -> target.

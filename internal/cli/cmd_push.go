@@ -35,7 +35,7 @@ func runPush(args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client := protocol.NewClient(rm.URL)
+	client := authedClient(rm.URL)
 	remoteTargets, _, err := remoteRefMap(client)
 	if err != nil {
 		return err
@@ -84,6 +84,11 @@ func runPush(args []string, out, errOut io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(out, "pushed %s -> %s (%s)\n", ref.ShortName(rf.Name), remoteName, rf.Target[:10])
+	}
+
+	// Carry the signed access policy so the remote can enforce and verify it.
+	if err := pushPolicy(client, r.DB, store, remoteTargets); err != nil {
+		return fmt.Errorf("push policy: %w", err)
 	}
 	return nil
 }

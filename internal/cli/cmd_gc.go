@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"haven/internal/policy"
 	"haven/internal/ref"
 )
 
@@ -30,6 +31,9 @@ func runGc(args []string, out, errOut io.Writer) error {
 		if rf.Target == "" {
 			continue
 		}
+		if rf.Visibility == ref.Policy {
+			continue // policy chain handled below
+		}
 		objs, err := store.Reachable(rf.Target)
 		if err != nil {
 			return err
@@ -37,6 +41,14 @@ func runGc(args []string, out, errOut io.Writer) error {
 		for h := range objs {
 			reachable[h] = true
 		}
+	}
+	// The signed policy chain is reachable by definition.
+	chain, err := policy.ChainHashes(r.DB, store)
+	if err != nil {
+		return err
+	}
+	for h := range chain {
+		reachable[h] = true
 	}
 
 	all, err := store.AllHashes()

@@ -36,7 +36,7 @@ func runSync(args []string, out, errOut io.Writer) error {
 	if rm.Kind != remote.Personal {
 		return fmt.Errorf("sync requires a personal remote; %q is %s (use 'hv push' for team)", remoteName, rm.Kind)
 	}
-	client := protocol.NewClient(rm.URL)
+	client := authedClient(rm.URL)
 
 	// Push every local branch and haven (personal remotes carry privates).
 	remoteTargets, _, err := remoteRefMap(client)
@@ -67,6 +67,11 @@ func runSync(args []string, out, errOut io.Writer) error {
 			return fmt.Errorf("%s diverged on %s; pull/merge before syncing: %w", ref.ShortName(rf.Name), remoteName, err)
 		}
 		fmt.Fprintf(out, "synced %s -> %s\n", ref.ShortName(rf.Name), remoteName)
+	}
+
+	// Carry the signed policy too.
+	if err := pushPolicy(client, r.DB, store, remoteTargets); err != nil {
+		return fmt.Errorf("sync policy: %w", err)
 	}
 
 	// Bring down anything new from the personal remote as tracking refs.

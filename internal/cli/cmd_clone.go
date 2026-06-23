@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"haven/internal/object"
-	"haven/internal/protocol"
+	"haven/internal/policy"
 	"haven/internal/ref"
 	"haven/internal/remote"
 	"haven/internal/repo"
@@ -47,7 +47,7 @@ func runClone(args []string, out, errOut io.Writer) error {
 	if err := remote.Add(r.DB, "origin", url, kind); err != nil {
 		return err
 	}
-	client := protocol.NewClient(url)
+	client := authedClient(url)
 	info, err := client.Info()
 	if err != nil {
 		return err
@@ -62,7 +62,7 @@ func runClone(args []string, out, errOut io.Writer) error {
 		return err
 	}
 	for _, rr := range refs {
-		if strings.HasPrefix(rr.Name, ref.BranchPrefix) || strings.HasPrefix(rr.Name, ref.HavenPrefix) {
+		if strings.HasPrefix(rr.Name, ref.BranchPrefix) || strings.HasPrefix(rr.Name, ref.HavenPrefix) || rr.Name == policy.Ref {
 			if err := ref.SetVisible(r.DB, rr.Name, rr.Target, rr.Visibility); err != nil {
 				return err
 			}

@@ -34,7 +34,7 @@ func runFetch(args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client := protocol.NewClient(rm.URL)
+	client := authedClient(rm.URL)
 	return fetchInto(r, store, client, remoteName, out)
 }
 

@@ -10,6 +10,8 @@ import (
 	"haven/internal/hash"
 	"haven/internal/index"
 	"haven/internal/object"
+	"haven/internal/policy"
+	"haven/internal/ref"
 	"haven/internal/repo"
 	"haven/internal/secret"
 	"haven/internal/workspace"
@@ -35,6 +37,10 @@ func runAdd(args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	headRef, err := r.Head()
+	if err != nil {
+		return err
+	}
 	scan, err := workspace.Scan(r.Root, marks)
 	if err != nil {
 		return err
@@ -54,7 +60,7 @@ func runAdd(args []string, out, errOut io.Writer) error {
 			if err != nil {
 				return err
 			}
-			h, isSecret, err := storeFile(r, store, rel, content, marks)
+			h, isSecret, err := storeFile(r, store, headRef, rel, content, marks)
 			if err != nil {
 				return err
 			}
@@ -76,18 +82,19 @@ func runAdd(args []string, out, errOut io.Writer) error {
 }
 
 // storeFile stores a working file as the right object kind: an encrypted Secret
-// (addressed by plaintext hash) if it matches a mark, otherwise a plain blob.
-func storeFile(r *repo.Repo, store *object.Store, rel string, content []byte, marks []string) (string, bool, error) {
+// (addressed by plaintext hash, to the readers of refName) if it matches a
+// mark, otherwise a plain blob.
+func storeFile(r *repo.Repo, store *object.Store, refName, rel string, content []byte, marks []string) (string, bool, error) {
 	if !secret.Match(rel, marks) {
 		h, err := store.Put(object.Blob, content)
 		return h, false, err
 	}
-	recips, err := secret.Recipients(r.DB)
+	recips, err := policy.RecipientsFor(r.DB, store, refName)
 	if err != nil {
 		return "", false, err
 	}
 	if len(recips) == 0 {
-		return "", false, fmt.Errorf("%s is a secret but there are no recipients; run 'hv key gen'", rel)
+		return "", false, fmt.Errorf("%s is a secret but %s has no readers; run 'hv key gen' or grant read access", rel, ref.ShortName(refName))
 	}
 	ciphertext, err := secret.Encrypt(content, recips)
 	if err != nil {

@@ -6,8 +6,9 @@ import (
 
 	"haven/internal/config"
 	"haven/internal/identity"
+	"haven/internal/object"
+	"haven/internal/policy"
 	"haven/internal/repo"
-	"haven/internal/secret"
 )
 
 var cmdKey = Command{
@@ -29,14 +30,22 @@ func runKey(args []string, out, errOut io.Writer) error {
 		}
 		fmt.Fprintf(out, "generated identity at %s\n", identity.Path())
 		fmt.Fprintf(out, "recipient: %s\n", id.Recipient())
-		// Register yourself as a member of the current repo, if in one.
+		// Bootstrap this repo's policy with you as the founding admin, if it has
+		// none yet.
 		if r, openErr := repo.Open("."); openErr == nil {
 			defer r.Close()
-			name := memberName(r)
-			if err := secret.AddMember(r.DB, name, id.Recipient()); err != nil {
+			store := object.NewStore(r.DB)
+			cur, err := policy.Load(r.DB, store)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "added you (%q) as a member of this repository\n", name)
+			if cur == nil {
+				name := memberName(r)
+				if err := policy.Bootstrap(r.DB, store, name, id.SignPub(), id.Recipient(), id.Sign); err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "bootstrapped policy: you (%q) are the founding admin\n", name)
+			}
 		}
 		return nil
 	case "show":

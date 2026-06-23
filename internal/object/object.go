@@ -20,6 +20,8 @@ const (
 	// PLAINTEXT (so its identity is stable across re-encryption), while the
 	// stored content is ciphertext the server can never read.
 	Secret Type = "secret"
+	// Policy is a signed access-policy version (JSON).
+	Policy Type = "policy"
 )
 
 // Store reads and writes objects to the database.

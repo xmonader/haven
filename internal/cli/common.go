@@ -10,11 +10,22 @@ import (
 	"haven/internal/index"
 	"haven/internal/lock"
 	"haven/internal/object"
+	"haven/internal/protocol"
 	"haven/internal/ref"
 	"haven/internal/repo"
 	"haven/internal/secret"
 	"haven/internal/workspace"
 )
+
+// authedClient builds a protocol client for url, attaching signed-request
+// credentials when the user has an identity (anonymous otherwise).
+func authedClient(url string) *protocol.Client {
+	c := protocol.NewClient(url)
+	if id := currentIdentity(); id != nil {
+		c.WithAuth(id.SignPub(), id.Sign)
+	}
+	return c
+}
 
 // marksOf loads the repository's secret path globs.
 func marksOf(r *repo.Repo) ([]string, error) {
