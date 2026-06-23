@@ -162,7 +162,15 @@ hv bisect reset
 ```sh
 hv fsck    # verify object integrity and the policy chain
 hv gc      # drop unreachable objects (keeps everything reachable from refs/tags/stash/policy)
+hv repack  # delta-compress similar objects to shrink .haven/haven.db, then VACUUM
 ```
+
+`repack` stores objects that resemble a recent one as a compact delta against
+it (the way successive versions of a file share most bytes), verifying each
+rewrite reconstructs byte-for-byte before committing it. It only ever shrinks
+the store, is safe to interrupt or re-run, and leaves secrets and the signed
+policy chain whole. Run it periodically on a long-lived repo; `fsck` afterward
+confirms every object still hashes correctly.
 
 ---
 
@@ -190,7 +198,7 @@ Edit, `hv add` the resolved files, then `hv commit`. `rebase` is all-or-nothing:
 | Identity/secrets | `key` `secret` |
 | Access | `member` `group` `grant` `revoke` `restrict` `policy` |
 | Remotes | `serve` `remote` `push` `fetch` `pull` `clone` `sync` |
-| Maintenance | `fsck` `gc` |
+| Maintenance | `fsck` `gc` `repack` |
 
 Run `hv help` for the full list.
 
@@ -200,7 +208,7 @@ Run `hv help` for the full list.
 
 Haven is solid for solo and small-trusted-team use. Be aware of these by-design or not-yet boundaries:
 
-- **Storage compresses but doesn't delta/pack.** Each object is zlib-compressed at rest (incompressible content is stored raw, never enlarged), which cuts on-disk size for source trees. But there is no delta encoding or packfile, and each object is still loaded whole into memory per operation. Great for source trees; not suited to very large repos or large binary files.
+- **Storage compresses and delta-packs, but reads aren't streamed.** Each object is zlib-compressed at rest (incompressible content is stored raw, never enlarged), and `hv repack` delta-compresses similar objects against a base (reconstruction self-verified, never bloats, depth-1 chains) to cut on-disk size further. But each object is still loaded whole into memory per operation — streaming reads are future work. Great for source trees; not suited to huge single binary files.
 - **Cross-platform.** The working-copy lock uses `flock(2)` on Unix and `LockFileEx` on Windows; release binaries are published for Linux, macOS, and Windows (amd64/arm64).
 - **Shared-plaintext secrets across refs.** A secret's identity is its plaintext hash, so the *same* secret bytes on two refs share one ciphertext. This keeps merges of a shared `.env` clean, but if two refs need that identical secret encrypted to *different* readers, only one recipient set is stored. It is not a disclosure risk (identical plaintext means identical knowledge); at worst a reader is temporarily locked out until `hv secret rotate`. Use distinct secret values per trust boundary.
 - **Replay nonces are evicted after 5 minutes.** Within that window replay is blocked by a durable nonce table; the window itself is the clock-skew bound.

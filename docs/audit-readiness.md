@@ -19,8 +19,9 @@ model) by pointing at the code and tests that implement each control.
    table, reachability gating, body cap, secret-rewrite gating, origin binding,
    policy-root pinning. Tests: `internal/protocol/enforce_test.go`.
 4. **Storage integrity** — `internal/store/`, `internal/object/`, `internal/ref/`.
-   Content addressing, compression codec + migration, atomic ref CAS, tree-depth
-   bound.
+   Content addressing, compression codec + migration, delta codec
+   (`MakeDelta`/`ApplyDelta`, `EncodeDelta`/`DecodeDelta`) and delta-aware
+   `Get`/`Each`/`gc`/`repack`, atomic ref CAS, tree-depth bound.
 
 ## Controls → code map
 
@@ -59,8 +60,12 @@ model) by pointing at the code and tests that implement each control.
 - **No prior external audit** — the cryptographic *composition* (not the
   primitives: age, ed25519, SHA-256) is unreviewed. This document exists to
   enable that review.
-- **Scale**: whole-object storage, no delta/packfile (see the storage design
-  note in `design.md`). Not a security control.
+- **Scale**: objects are zlib-compressed and `hv repack` delta-compresses
+  similar objects against a base (reconstruction self-verified before any
+  rewrite; reads bounded to depth-1 chains; gc retains delta bases). There is
+  still no streaming for very large single blobs. Not a security control, but a
+  reviewer should confirm `ApplyDelta` rejects malformed/circular deltas and
+  that delta storage never changes an object's identity hash.
 
 ## Build & verify
 

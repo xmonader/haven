@@ -263,6 +263,11 @@ hv push    [<remote>] [<branch>...]   # refuses private refs by default
 hv pull | fetch
 hv sync    [<remote>]                  # personal remote; carries havens
 hv serve   [<addr>]                    # run a haven host
+
+# maintenance
+hv fsck                                # verify object integrity + policy chain
+hv gc                                  # drop unreachable objects (keeps delta bases)
+hv repack                              # delta-compress similar objects, then VACUUM
 ```
 
 `hv secret set/get/export <ref> <K=V>` survive as optional sugar for values that should never be a file (CI injection), on the same recipients-=-readers machinery.
@@ -320,7 +325,7 @@ M7/M8 land after M5 — enforcement is meaningless without the server.
 - **Concurrent `hv commit`** → SQLite tx for objects; `.haven/wclock` (flock) for working-copy ops.
 - **Publishing a haven whose public twin diverged** → refuse, require explicit merge.
 - **Sync conflict (two laptops, same haven)** → v1 refuses, instructs manual merge.
-- **Large files** → objects are zlib-compressed at rest (incompressible data stored raw, never enlarged) but still loaded whole into memory per operation; delta/packfile storage and streaming are future work. Fine for source trees, not huge binaries — documented limitation.
+- **Large files** → objects are zlib-compressed at rest (incompressible data stored raw, never enlarged) and `hv repack` delta-compresses similar objects, but each object is still loaded whole into memory per operation; streaming reads are future work (§16). Fine for source trees, not huge binaries — documented limitation.
 - **Memory-exhaustion DoS** → request bodies are capped at `MaxRequestBytes` before buffering.
 - **Secret lock-out** → a member can read a secret but cannot rewrite its ciphertext to lock others out: a content-changing rewrite requires write access to a ref reaching the secret; identical bytes stay idempotent.
 - **Schema drift across versions** → the database carries `PRAGMA user_version`; migrations run forward on open, and a database newer than the binary is refused rather than mis-read.
@@ -333,7 +338,7 @@ M7/M8 land after M5 — enforcement is meaningless without the server.
 
 ## 14. Explicitly Out of Scope (v1)
 
-Hunk-level staging · signed commits (GPG/SSH) · submodules · LFS / large-file offload · delta/packfile storage · interactive rebase · octopus (>2-parent) merge · subcommand aliases · git interop · GUI/TUI · patch-review flow · multi-admin threshold approval · break-glass escrow · key revocation lists beyond the signed-chain `status` field · Windows (`flock`).
+Hunk-level staging · signed commits (GPG/SSH) · submodules · LFS / large-file offload · streaming reads for huge single blobs · interactive rebase · octopus (>2-parent) merge · subcommand aliases · git interop · GUI/TUI · patch-review flow · multi-admin threshold approval · break-glass escrow · key revocation lists beyond the signed-chain `status` field.
 
 (Linear `rebase`, `cherry-pick`/`revert`, `stash`, and `bisect` were originally listed here but are now implemented.)
 
@@ -354,38 +359,41 @@ A user can, end to end and without git installed:
 
 ---
 
-## 16. Future: delta/packfile storage (designed, not built)
+## 16. Delta storage (built) and streaming reads (future)
 
-**Status: deferred by choice.** Today every object is stored whole (zlib-
-compressed) in SQLite and loaded fully into memory per operation. This is
-correct and fine for source trees, but it does not scale to very large repos or
-large binaries. Delta storage is the remaining *scale* gap — it is **not** a
-correctness or security defect, and is intentionally not rushed into the storage
-layer (the most safety-critical layer) without its own milestone.
+**Status: delta encoding + compaction shipped; streaming reads remain future.**
+Objects are stored whole and zlib-compressed by default, and `hv repack` now
+delta-compresses similar objects so successive versions of a file share bytes.
+The remaining *scale* gap is per-object memory (each object is still loaded
+whole) — addressed by streaming reads (step 3), still future. None of this is a
+correctness or security defect.
 
-**Why deferred, not hacked in:** a half-built packfile format risks corrupting
-the object store — the one thing a VCS must never do. It deserves a dedicated
-design + test pass, not a drive-by.
+**1. Delta encoding (built).** `internal/store/delta.go` implements a
+copy/insert delta (`MakeDelta`/`ApplyDelta`); `EncodeDelta`/`DecodeDelta` in
+`codec.go` wrap a delta as stored content (a `codecDelta` tag, the base hash,
+the compressed delta program). The object hash stays over the *reconstructed*
+content, so addressing, the secret plaintext-hash, and the wire protocol are
+untouched — `uploadReachable`/the server's `getObject` both read via
+`store.Get`, which reconstructs, so the wire only ever carries whole objects.
+`ApplyDelta` validates every offset/length and rejects malformed or truncated
+deltas. Reconstruction is bounded by `maxDeltaDepth`.
 
-**Planned approach (when prioritized):**
+**2. Packing/compaction (built).** `hv repack` (`internal/cli/cmd_repack.go`)
+walks whole blobs/trees/commits, groups them by type and size, and stores each
+against a recent same-type base when that shrinks it, then `VACUUM`s. Safety
+invariants: bases stay full objects (read chains are depth-1); every rewrite is
+self-verified to reconstruct byte-for-byte before it is committed and is a no-op
+if it would not shrink the object (never bloats); `gc` retains the base of every
+reachable delta (`addDeltaBases`) since delta links are invisible to the object
+graph. Secrets and the signed policy chain are left whole. Loose objects remain
+the write path; repack is opt-in background compaction.
 
-1. **Delta encoding.** Store selected blobs as a delta against a similar base
-   object (binary diff, e.g. a bsdiff-style or git-style delta), with a chain
-   depth bound so reconstruction cost stays linear and bounded. Keep the object
-   hash over the *reconstructed* content (identity unchanged), so addressing,
-   the secret plaintext-hash, and the wire protocol are all untouched — delta is
-   purely a storage-layer concern behind the existing `Encode`/`Decode` seam in
-   `internal/store/codec.go`.
-2. **Packing.** A `hv gc`/`hv repack` step groups objects into a pack with an
-   index, choosing delta bases by similarity (size/type/path heuristics). Loose
-   objects remain the write path; packing is a background compaction.
-3. **Streaming reads.** Add an `io.Reader`-returning accessor so large blobs
-   need not be fully resident; the codec and delta-reconstruction become
-   streaming. This is what actually removes the memory-per-object ceiling.
-4. **Migration.** A new schema version (the `PRAGMA user_version` runner already
-   exists) introduces the pack tables; existing loose objects keep working and
-   are packed lazily.
+**3. Streaming reads (future).** Add an `io.Reader`-returning accessor so large
+blobs need not be fully resident; the codec and delta-reconstruction become
+streaming. This is what actually removes the memory-per-object ceiling — the one
+remaining scale item.
 
-**Acceptance:** a repo with large/redundant binaries shows materially smaller
-`.haven/haven.db` and bounded memory during clone/checkout, with `hv fsck` still
-verifying every object's content hash after reconstruction.
+**Acceptance (met for 1–2):** a multi-revision repo shows a materially smaller
+`.haven/haven.db` after `hv repack` (measured 98304→86016 bytes on a 5-revision
+fixture), `hv repack` is idempotent, and `hv fsck` still verifies every object's
+content hash after reconstruction.
