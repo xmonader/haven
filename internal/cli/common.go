@@ -8,6 +8,7 @@ import (
 	"haven/internal/hash"
 	"haven/internal/identity"
 	"haven/internal/index"
+	"haven/internal/lock"
 	"haven/internal/object"
 	"haven/internal/ref"
 	"haven/internal/repo"
@@ -39,6 +40,12 @@ func openRepo() (*repo.Repo, *object.Store, error) {
 // uncommitted changes, materializes the target tree, repoints HEAD, and resets
 // the staging area to the new tree.
 func switchTo(r *repo.Repo, store *object.Store, targetRef string) error {
+	wc, err := lock.Acquire(r.Root)
+	if err != nil {
+		return err
+	}
+	defer wc.Release()
+
 	headRef, err := r.Head()
 	if err != nil {
 		return err

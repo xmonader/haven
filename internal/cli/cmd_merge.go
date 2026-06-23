@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"haven/internal/config"
+	"haven/internal/lock"
 	"haven/internal/merge"
 	"haven/internal/object"
 	"haven/internal/ref"
@@ -55,6 +56,12 @@ func runMerge(args []string, out, errOut io.Writer) error {
 // mergeInto merges the commit theirs into the current HEAD ref. label names the
 // source for messages. Shared by merge and pull.
 func mergeInto(r *repo.Repo, store *object.Store, theirs, label string, out io.Writer) error {
+	wc, err := lock.Acquire(r.Root)
+	if err != nil {
+		return err
+	}
+	defer wc.Release()
+
 	headRef, err := r.Head()
 	if err != nil {
 		return err

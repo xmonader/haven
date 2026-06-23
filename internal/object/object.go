@@ -73,6 +73,50 @@ func (s *Store) Get(h string) (Type, []byte, error) {
 	return Type(t), payload, nil
 }
 
+// Each calls fn for every stored object. fn must not retain content.
+func (s *Store) Each(fn func(hash string, t Type, content []byte) error) error {
+	rows, err := s.db.Query(`SELECT hash, type, content FROM objects`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var h, t string
+		var content []byte
+		if err := rows.Scan(&h, &t, &content); err != nil {
+			return err
+		}
+		if err := fn(h, Type(t), content); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// AllHashes returns every stored object hash.
+func (s *Store) AllHashes() ([]string, error) {
+	rows, err := s.db.Query(`SELECT hash FROM objects`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// Delete removes an object by hash.
+func (s *Store) Delete(hash string) error {
+	_, err := s.db.Exec(`DELETE FROM objects WHERE hash=?`, hash)
+	return err
+}
+
 // Has reports whether an object exists.
 func (s *Store) Has(h string) (bool, error) {
 	var one int
