@@ -60,42 +60,81 @@ func mergeLines(base, ours, theirs []string) ([]string, bool) {
 			i = next
 		}
 
-		oHere := oi < len(oh) && oh[oi].BaseStart == i
-		tHere := ti < len(th) && th[ti].BaseStart == i
+		// Group all chunks (from either side) that overlap the change region
+		// starting at i into a single region [i, regionEnd). A chunk joins the
+		// region if it starts at i (the seed) or strictly overlaps the region so
+		// far (BaseStart < regionEnd); adjacent, non-overlapping edits stay
+		// separate so they merge cleanly. This is what makes overlapping edits
+		// that start at *different* base lines a conflict rather than a silent,
+		// wrong auto-merge.
+		regionEnd := i
+		oFirst, tFirst := oi, ti
+		for {
+			advanced := false
+			for oi < len(oh) && (oh[oi].BaseStart == i || oh[oi].BaseStart < regionEnd) {
+				if oh[oi].BaseEnd > regionEnd {
+					regionEnd = oh[oi].BaseEnd
+				}
+				oi++
+				advanced = true
+			}
+			for ti < len(th) && (th[ti].BaseStart == i || th[ti].BaseStart < regionEnd) {
+				if th[ti].BaseEnd > regionEnd {
+					regionEnd = th[ti].BaseEnd
+				}
+				ti++
+				advanced = true
+			}
+			if !advanced {
+				break
+			}
+		}
 
+		oChanged := oi > oFirst
+		tChanged := ti > tFirst
 		switch {
-		case oHere && tHere:
-			o, t := oh[oi], th[ti]
-			if o.BaseEnd == t.BaseEnd && equal(o.Repl, t.Repl) {
-				out = append(out, o.Repl...) // both sides made the same edit
+		case oChanged && tChanged:
+			oSide := regionSide(base, oh, oFirst, oi, i, regionEnd)
+			tSide := regionSide(base, th, tFirst, ti, i, regionEnd)
+			if equal(oSide, tSide) {
+				out = append(out, oSide...) // both sides resolve identically
 			} else {
 				conflict = true
 				out = append(out, markerOurs)
-				out = append(out, o.Repl...)
+				out = append(out, oSide...)
 				out = append(out, markerSplit)
-				out = append(out, t.Repl...)
+				out = append(out, tSide...)
 				out = append(out, markerTheirs)
 			}
-			i = max(o.BaseEnd, t.BaseEnd)
-			oi++
-			ti++
-			for oi < len(oh) && oh[oi].BaseStart < i {
-				oi++
-			}
-			for ti < len(th) && th[ti].BaseStart < i {
-				ti++
-			}
-		case oHere:
-			out = append(out, oh[oi].Repl...)
-			i = oh[oi].BaseEnd
-			oi++
-		default: // tHere
-			out = append(out, th[ti].Repl...)
-			i = th[ti].BaseEnd
-			ti++
+		case oChanged:
+			out = append(out, regionSide(base, oh, oFirst, oi, i, regionEnd)...)
+		default: // tChanged
+			out = append(out, regionSide(base, th, tFirst, ti, i, regionEnd)...)
 		}
+		i = regionEnd
 	}
 	return out, conflict
+}
+
+// regionSide reconstructs one side's text for the base region [rs, re), given
+// that side's chunks[lo:hi] (which fall within the region). Unchanged base lines
+// between/around those chunks are carried through, so the result is the side's
+// full view of the region — exactly what belongs between conflict markers.
+func regionSide(base []string, chunks []diff.Chunk, lo, hi, rs, re int) []string {
+	var s []string
+	pos := rs
+	for k := lo; k < hi; k++ {
+		c := chunks[k]
+		if c.BaseStart > pos {
+			s = append(s, base[pos:c.BaseStart]...)
+		}
+		s = append(s, c.Repl...)
+		pos = c.BaseEnd
+	}
+	if pos < re {
+		s = append(s, base[pos:re]...)
+	}
+	return s
 }
 
 // lines splits content into lines without trailing newlines. A trailing
