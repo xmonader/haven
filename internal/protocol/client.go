@@ -55,7 +55,10 @@ func (c *Client) do(method, path string, body []byte, headers map[string]string)
 	}
 	if c.Auth != nil {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
-		nonce := newNonce()
+		nonce, err := newNonce()
+		if err != nil {
+			return nil, err
+		}
 		sig := ed25519.Sign(c.Auth.Priv, canonicalRequest(method, path, ts, bodyHash(body), nonce, req.URL.Host))
 		req.Header.Set(HdrPub, c.Auth.Pub)
 		req.Header.Set(HdrTime, ts)
@@ -65,11 +68,16 @@ func (c *Client) do(method, path string, body []byte, headers map[string]string)
 	return c.HTTP.Do(req)
 }
 
-// newNonce returns a random 128-bit hex token, unique per request.
-func newNonce() string {
+// newNonce returns a random 128-bit hex token, unique per request. It fails
+// closed: if the system RNG errors, it returns the error rather than signing a
+// request with a predictable (all-zero) nonce, which would defeat replay
+// protection.
+func newNonce() (string, error) {
 	var b [16]byte
-	rand.Read(b[:])
-	return hex.EncodeToString(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // Info fetches repository metadata.

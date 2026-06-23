@@ -99,7 +99,12 @@ func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, bod
 		return "", body, true // anonymous: public access only
 	}
 	tsec, err := strconv.ParseInt(ts, 10, 64)
-	if err != nil || abs(time.Now().Unix()-tsec) > MaxSkewSeconds {
+	// Bound-check without subtracting two int64s: tsec is attacker-controlled,
+	// so now-tsec could overflow and wrap a far-off timestamp into the accept
+	// window. now is a real unix time, far from the int64 limits, so now±skew
+	// never overflows.
+	now := time.Now().Unix()
+	if err != nil || tsec < now-MaxSkewSeconds || tsec > now+MaxSkewSeconds {
 		return "", body, false
 	}
 	pubBytes, err := hex.DecodeString(pub)
@@ -419,11 +424,4 @@ func canRead(p *policy.Policy, actor, refName string) bool {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
-}
-
-func abs(x int64) int64 {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
