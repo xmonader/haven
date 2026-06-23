@@ -133,6 +133,7 @@ hv serve --kind team --policy-root <root-sign-key-hex> --tls-cert cert.pem --tls
 - [`docs/case-study.md`](docs/case-study.md) — engineering case study: the hard parts, key decisions and trade-offs, and war stories.
 - [`docs/deepdive-signed-policy.md`](docs/deepdive-signed-policy.md) — deep dive into the offline-verifiable signed access-policy chain.
 - [`docs/threat-model.md`](docs/threat-model.md) — what Haven defends against, its trust boundaries, and known limitations.
+- [`docs/audit-readiness.md`](docs/audit-readiness.md) — orientation for an external security reviewer: controls→code map and attacks to attempt.
 - [`SECURITY.md`](SECURITY.md) — how to report a vulnerability (private disclosure).
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup and the bar for changes.
 

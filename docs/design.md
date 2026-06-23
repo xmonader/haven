@@ -351,3 +351,41 @@ A user can, end to end and without git installed:
 6. `hv member revoke` a teammate (tool forces value rotation) and `hv policy verify` a clone from an untrusted mirror, detecting any forged grant.
 7. `hv push` to a team remote with certainty no haven leaks.
 ```
+
+---
+
+## 16. Future: delta/packfile storage (designed, not built)
+
+**Status: deferred by choice.** Today every object is stored whole (zlib-
+compressed) in SQLite and loaded fully into memory per operation. This is
+correct and fine for source trees, but it does not scale to very large repos or
+large binaries. Delta storage is the remaining *scale* gap — it is **not** a
+correctness or security defect, and is intentionally not rushed into the storage
+layer (the most safety-critical layer) without its own milestone.
+
+**Why deferred, not hacked in:** a half-built packfile format risks corrupting
+the object store — the one thing a VCS must never do. It deserves a dedicated
+design + test pass, not a drive-by.
+
+**Planned approach (when prioritized):**
+
+1. **Delta encoding.** Store selected blobs as a delta against a similar base
+   object (binary diff, e.g. a bsdiff-style or git-style delta), with a chain
+   depth bound so reconstruction cost stays linear and bounded. Keep the object
+   hash over the *reconstructed* content (identity unchanged), so addressing,
+   the secret plaintext-hash, and the wire protocol are all untouched — delta is
+   purely a storage-layer concern behind the existing `Encode`/`Decode` seam in
+   `internal/store/codec.go`.
+2. **Packing.** A `hv gc`/`hv repack` step groups objects into a pack with an
+   index, choosing delta bases by similarity (size/type/path heuristics). Loose
+   objects remain the write path; packing is a background compaction.
+3. **Streaming reads.** Add an `io.Reader`-returning accessor so large blobs
+   need not be fully resident; the codec and delta-reconstruction become
+   streaming. This is what actually removes the memory-per-object ceiling.
+4. **Migration.** A new schema version (the `PRAGMA user_version` runner already
+   exists) introduces the pack tables; existing loose objects keep working and
+   are packed lazily.
+
+**Acceptance:** a repo with large/redundant binaries shows materially smaller
+`.haven/haven.db` and bounded memory during clone/checkout, with `hv fsck` still
+verifying every object's content hash after reconstruction.
