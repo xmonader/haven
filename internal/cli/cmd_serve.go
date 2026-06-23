@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"haven/internal/protocol"
 )
@@ -50,11 +55,61 @@ func runServe(args []string, out, errOut io.Writer) error {
 	}
 	defer r.Close()
 
-	srv := protocol.NewServer(r.DB, kind)
+	srv := &http.Server{Addr: addr, Handler: logRequests(protocol.NewServer(r.DB, kind).Handler(), out)}
+
+	// Shut down cleanly on SIGINT/SIGTERM so in-flight requests finish.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-stop
+		fmt.Fprintln(out, "\nshutting down…")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+	}()
+
+	scheme := "http"
+	listen := srv.ListenAndServe
 	if cert != "" {
-		fmt.Fprintf(out, "serving %s repository on https://%s\n", kind, addr)
-		return http.ListenAndServeTLS(addr, cert, key, srv.Handler())
+		scheme = "https"
+		listen = func() error { return srv.ListenAndServeTLS(cert, key) }
+	} else {
+		fmt.Fprintln(out, "note: no TLS — signed requests prevent forgery, not eavesdropping")
 	}
-	fmt.Fprintf(out, "serving %s repository on %s (no TLS — signed requests prevent forgery, not eavesdropping)\n", kind, addr)
-	return http.ListenAndServe(addr, srv.Handler())
+	fmt.Fprintf(out, "serving %s repository on %s://%s (Ctrl-C to stop)\n", kind, scheme, addr)
+
+	if err := listen(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+// statusRecorder captures the response status for logging.
+type statusRecorder struct {
+	http.ResponseWriter
+	code int
+}
+
+func (r *statusRecorder) WriteHeader(c int) {
+	r.code = c
+	r.ResponseWriter.WriteHeader(c)
+}
+
+// logRequests writes one access-log line per request: method, path, status,
+// duration, and the requester's key prefix (or "anon").
+func logRequests(h http.Handler, out io.Writer) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
+		start := time.Now()
+		h.ServeHTTP(rec, req)
+		who := "anon"
+		if pub := req.Header.Get(protocol.HdrPub); pub != "" {
+			if len(pub) > 12 {
+				pub = pub[:12]
+			}
+			who = pub
+		}
+		fmt.Fprintf(out, "%s %s %d %s %s\n",
+			req.Method, req.URL.Path, rec.code, time.Since(start).Round(time.Millisecond), who)
+	})
 }
