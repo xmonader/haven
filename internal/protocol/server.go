@@ -99,7 +99,7 @@ func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, bod
 	if err != nil || !ed25519.Verify(pubBytes, canonicalRequest(r.Method, r.URL.Path, ts, bodyHash(body), nonce), sig) {
 		return "", body, false
 	}
-	if !s.acceptNonce(nonce, tsec) {
+	if !s.acceptNonce(nonce) {
 		return "", body, false // replay of an already-seen request
 	}
 	for name, m := range p.Keyring {
@@ -112,13 +112,16 @@ func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, bod
 
 // acceptNonce durably records a freshly-seen nonce and reports whether it was
 // new. Persisted to the DB so replay protection survives restarts and holds
-// across processes sharing the repo. Nonces older than the skew window are
-// evicted (they fail the time check anyway). The INSERT is the atomic guard:
-// a duplicate violates the primary key.
-func (s *Server) acceptNonce(nonce string, tsec int64) bool {
-	cutoff := time.Now().Unix() - MaxSkewSeconds
-	s.db.Exec(`DELETE FROM seen_nonces WHERE seen_at < ?`, cutoff)
-	res, err := s.db.Exec(`INSERT INTO seen_nonces(nonce, seen_at) VALUES(?,?)`, nonce, tsec)
+// across processes sharing the repo. The recorded time is the SERVER's receive
+// time, not the client-supplied timestamp, so a client cannot influence when
+// its nonce becomes evictable and thus the replay window. A row is only safe to
+// evict once it is older than the skew window (a request that old fails the time
+// check anyway). The INSERT is the atomic guard: a duplicate violates the
+// primary key.
+func (s *Server) acceptNonce(nonce string) bool {
+	now := time.Now().Unix()
+	s.db.Exec(`DELETE FROM seen_nonces WHERE seen_at < ?`, now-MaxSkewSeconds)
+	res, err := s.db.Exec(`INSERT INTO seen_nonces(nonce, seen_at) VALUES(?,?)`, nonce, now)
 	if err != nil {
 		return false // primary-key conflict => replay
 	}

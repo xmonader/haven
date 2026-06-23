@@ -66,9 +66,14 @@ func Generate() (*Identity, error) {
 	id := &Identity{X25519: enc, Sign: priv}
 
 	p := Path()
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
+	// MkdirAll leaves an existing directory's mode untouched, so enforce 0700 on
+	// our own identity dir to keep the private key out of a group/world-traversable
+	// directory.
+	os.Chmod(dir, 0o700)
 	data, _ := json.Marshal(onDisk{Enc: enc.String(), Sign: hex.EncodeToString(priv)})
 	if err := os.WriteFile(p, data, 0o600); err != nil {
 		return nil, err
@@ -76,9 +81,15 @@ func Generate() (*Identity, error) {
 	return id, nil
 }
 
-// Load reads the identity from Path. It errors if none exists.
+// Load reads the identity from Path. It errors if none exists. If the key file
+// is found group- or world-accessible, it is tightened back to 0600 (the
+// private key is the crown jewel; we never leave it readable by others).
 func Load() (*Identity, error) {
-	data, err := os.ReadFile(Path())
+	p := Path()
+	if info, err := os.Stat(p); err == nil && info.Mode().Perm()&0o077 != 0 {
+		os.Chmod(p, 0o600)
+	}
+	data, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("no identity at %s (run 'hv key gen')", Path())
