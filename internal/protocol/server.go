@@ -166,17 +166,13 @@ func (s *Server) postRefs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cur, err := ref.Resolve(s.db, u.Name)
+	ok, err := ref.CompareAndSwap(s.db, u.Name, u.OldTarget, u.Target, u.Visibility)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if cur != u.OldTarget {
+	if !ok {
 		http.Error(w, "ref update conflict: stale old_target", http.StatusConflict)
-		return
-	}
-	if err := ref.SetVisible(s.db, u.Name, u.Target, u.Visibility); err != nil {
-		http.Error(w, err.Error(), 500)
 		return
 	}
 	s.mu.Lock()

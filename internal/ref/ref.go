@@ -91,6 +91,38 @@ func SetVisible(db *sql.DB, name, target, visibility string) error {
 	return nil
 }
 
+// CompareAndSwap atomically repoints name to newTarget only if its current
+// target equals oldTarget. An oldTarget of "" means the ref must be absent or
+// unborn (empty target). Returns false (without error) when the precondition no
+// longer holds — i.e. a concurrent writer won the race. The whole check-and-set
+// is one SQLite statement, so it is safe against concurrent ref updates.
+func CompareAndSwap(db *sql.DB, name, oldTarget, newTarget, visibility string) (bool, error) {
+	now := time.Now().Unix()
+	if oldTarget == "" {
+		// Create when absent, or advance a row that is still unborn (target "").
+		res, err := db.Exec(
+			`INSERT INTO refs(name, visibility, target, mtime) VALUES(?,?,?,?)
+			 ON CONFLICT(name) DO UPDATE SET target=excluded.target, visibility=excluded.visibility, mtime=excluded.mtime
+			 WHERE refs.target=''`,
+			name, visibility, newTarget, now,
+		)
+		if err != nil {
+			return false, fmt.Errorf("cas ref %s: %w", name, err)
+		}
+		n, _ := res.RowsAffected()
+		return n == 1, nil
+	}
+	res, err := db.Exec(
+		`UPDATE refs SET target=?, visibility=?, mtime=? WHERE name=? AND target=?`,
+		newTarget, visibility, now, name, oldTarget,
+	)
+	if err != nil {
+		return false, fmt.Errorf("cas ref %s: %w", name, err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
 // List returns all refs ordered by name.
 func List(db *sql.DB) ([]Ref, error) {
 	rows, err := db.Query(`SELECT name, visibility, target, mtime FROM refs ORDER BY name`)

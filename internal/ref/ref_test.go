@@ -62,3 +62,40 @@ func TestVisibilityForAndShortName(t *testing.T) {
 		t.Error("ShortName should strip the branch prefix")
 	}
 }
+
+func TestCompareAndSwapIsAtomicUnderConcurrency(t *testing.T) {
+	db, err := store.Open(t.TempDir() + "/cas.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	name := BranchPrefix + "main"
+	if err := Set(db, name, "v0"); err != nil {
+		t.Fatal(err)
+	}
+
+	const racers = 16
+	results := make(chan bool, racers)
+	start := make(chan struct{})
+	for i := 0; i < racers; i++ {
+		go func(i int) {
+			<-start
+			ok, _ := CompareAndSwap(db, name, "v0", "winner", Public)
+			results <- ok
+		}(i)
+	}
+	close(start)
+	wins := 0
+	for i := 0; i < racers; i++ {
+		if <-results {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("expected exactly one winner from the same old_target, got %d", wins)
+	}
+	if tgt, _ := Resolve(db, name); tgt != "winner" {
+		t.Fatalf("final target = %q, want winner", tgt)
+	}
+}
