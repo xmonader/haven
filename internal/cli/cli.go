@@ -34,6 +34,7 @@ var registry = []Command{
 	cmdRevert,
 	cmdRebase,
 	cmdStash,
+	cmdBisect,
 	cmdRemote,
 	cmdServe,
 	cmdPush,
