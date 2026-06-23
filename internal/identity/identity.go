@@ -72,9 +72,15 @@ func Generate() (*Identity, error) {
 	}
 	// MkdirAll leaves an existing directory's mode untouched, so enforce 0700 on
 	// our own identity dir to keep the private key out of a group/world-traversable
-	// directory.
-	os.Chmod(dir, 0o700)
-	data, _ := json.Marshal(onDisk{Enc: enc.String(), Sign: hex.EncodeToString(priv)})
+	// directory. Failing closed: if we can't secure the directory, we don't write
+	// the private key into it.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("secure identity dir: %w", err)
+	}
+	data, err := json.Marshal(onDisk{Enc: enc.String(), Sign: hex.EncodeToString(priv)})
+	if err != nil {
+		return nil, fmt.Errorf("marshal identity: %w", err)
+	}
 	if err := os.WriteFile(p, data, 0o600); err != nil {
 		return nil, err
 	}
@@ -87,7 +93,11 @@ func Generate() (*Identity, error) {
 func Load() (*Identity, error) {
 	p := Path()
 	if info, err := os.Stat(p); err == nil && info.Mode().Perm()&0o077 != 0 {
-		os.Chmod(p, 0o600)
+		// Fail closed: if the key is exposed and we can't re-secure it, refuse to
+		// load it rather than use a world-readable private key.
+		if err := os.Chmod(p, 0o600); err != nil {
+			return nil, fmt.Errorf("tighten identity perms on %s: %w", p, err)
+		}
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
