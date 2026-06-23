@@ -61,6 +61,19 @@ func (s *Store) PutRaw(hash string, t Type, content []byte) error {
 	return nil
 }
 
+// ReplaceContent overwrites the stored bytes of an existing object, keeping its
+// hash. Only meaningful for Secret objects, whose hash is over the plaintext, so
+// rotating to a new ciphertext (or recipient set) preserves identity. No-op when
+// the hash is absent. (PutRaw is INSERT OR IGNORE and cannot rewrite, by design,
+// for idempotent wire receipt.)
+func (s *Store) ReplaceContent(h string, content []byte) error {
+	_, err := s.db.Exec(`UPDATE objects SET content=?, size=? WHERE hash=?`, content, len(content), h)
+	if err != nil {
+		return fmt.Errorf("replace content %s: %w", h, err)
+	}
+	return nil
+}
+
 // Get returns the type and payload of an object.
 func (s *Store) Get(h string) (Type, []byte, error) {
 	var t string

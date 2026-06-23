@@ -148,7 +148,7 @@ func secretRotate(r *repo.Repo, store *object.Store, rest []string, out io.Write
 		if err != nil {
 			return err
 		}
-		if err := store.PutRaw(fe.Hash, object.Secret, fresh); err != nil {
+		if err := store.ReplaceContent(fe.Hash, fresh); err != nil {
 			return err
 		}
 		rotated++
