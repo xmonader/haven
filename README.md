@@ -8,14 +8,15 @@ Haven is a from-scratch VCS for code that isn't ready for the public world yet. 
 
 ### What works today
 
-A complete local + networked VCS, plus encrypted secrets:
+A complete local + networked VCS with a signed-policy ACL and encrypted secrets:
 
 - **Local:** `init` · `add` · `commit` · `status` · `log` · `diff` · `config`
 - **Branches & havens:** `branch` · `haven` (private) · `publish` · `merge` (three-way, conflict markers)
 - **Remotes:** `serve` · `remote` · `push` (refuses havens) · `fetch` · `pull` · `clone` · `sync` (carries havens between your machines)
-- **Identity & secrets:** `key` · `member` · `secret` — files matching a mark (`.env`, `*.pem`, … by default) are **encrypted to the repo's members on `add`** and decrypted on checkout; the object store and any server hold only ciphertext.
+- **Identity & access:** `key` · `member` · `group` · `grant`/`revoke` · `restrict` · `policy` — a **portable, ed25519-signed policy chain** in the repo is the authorization root. Grants (`read`/`write`/`force`/`grant`/`admin`) are verifiable offline; `restrict` removes public access for need-to-know refs. The server **enforces** it: signed-request auth maps a key to a keyring actor and gates ref listing, object fetch, ref updates, and policy extension.
+- **Secrets:** `secret add`/`ref`/`rotate`/`status` — files matching a mark (`.env`, `*.pem`, … by default) are **encrypted to the ref's current readers on `add`** and decrypted on checkout; `secret ref` / `haven create --secret` encrypt a whole branch's tree at rest; `rotate` re-encrypts to the current readers after a membership change (no new commit) and `status` flags recipient drift. The object store and any server hold only ciphertext.
 
-**Still designed, not yet built:** ref-scoped recipients, `group`/`restrict` (need-to-know tiers), and the *signed* policy chain with signed-challenge auth. Today's secrets encrypt to the whole repo keyring, and access enforcement is the structural haven/team-server refusal — not yet the full signed-grant ACL described in the design.
+Hardening: `fsck` · `gc` · working-copy flock. Verified end-to-end — ciphertext at rest, non-recipient lockout, offline policy verification, tamper/history-rewrite rejection, restricted-ref hiding from anonymous clients.
 
 ---
 
