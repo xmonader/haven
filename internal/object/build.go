@@ -75,6 +75,39 @@ func Flatten(s *Store, treeHash string) (map[string]string, error) {
 	return out, nil
 }
 
+// FlattenFull walks a tree returning paths mapped to full file entries
+// (blob hash and mode).
+func FlattenFull(s *Store, treeHash string) (map[string]FileEntry, error) {
+	out := map[string]FileEntry{}
+	if treeHash == "" {
+		return out, nil
+	}
+	if err := flattenFull(s, treeHash, "", out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func flattenFull(s *Store, treeHash, prefix string, out map[string]FileEntry) error {
+	entries, err := s.GetTree(treeHash)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		switch e.Type {
+		case Blob:
+			out[prefix+e.Name] = FileEntry{Hash: e.Hash, Mode: e.Mode}
+		case Tree:
+			if err := flattenFull(s, e.Hash, prefix+e.Name+"/", out); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unexpected tree entry type %q", e.Type)
+		}
+	}
+	return nil
+}
+
 func flatten(s *Store, treeHash, prefix string, out map[string]string) error {
 	entries, err := s.GetTree(treeHash)
 	if err != nil {

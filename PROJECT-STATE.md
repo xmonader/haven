@@ -2,7 +2,8 @@
 
 ## Current State
 - **Done:** M0 skeleton. **M1** — object model (`internal/object`: blob/tree/commit, content-addressed store, nested tree build/flatten), `internal/hash`, `internal/ref` (CRUD + visibility), `internal/index` (staging), `internal/workspace` (scan), `internal/config` (author). Commands: `init config add commit status log`. End-to-end + unit tests green, vet clean.
-- **Next:** M2 — `branch create/switch/list/delete`, `checkout` (write tree to working dir), `diff` between refs.
+  **M2** — `internal/diff` (tree diff + LCS unified diff), `internal/workspace/checkout.go` (materialize tree, clean check), branch create/switch/list/delete, `diff`. Shared `switchTo`/`resolveTree`/`workingTree` helpers. Tests + vet green.
+- **Next:** M3 — havens: `hv haven create/switch/list/delete` (private visibility, reusing refCreate/refSwitch), `hv publish <haven> [--as <branch>]`.
 - **Blocked:** nothing.
 
 ## Key Decisions

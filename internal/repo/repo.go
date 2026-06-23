@@ -112,6 +112,11 @@ func (r *Repo) Head() (string, error) {
 	return readHead(r.Root)
 }
 
+// SetHead points HEAD at a ref name.
+func (r *Repo) SetHead(ref string) error {
+	return writeHead(r.Root, ref)
+}
+
 func writeHead(root, ref string) error {
 	return os.WriteFile(headPath(root), []byte("ref: "+ref+"\n"), 0o644)
 }

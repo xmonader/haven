@@ -22,6 +22,8 @@ var registry = []Command{
 	cmdCommit,
 	cmdStatus,
 	cmdLog,
+	cmdBranch,
+	cmdDiff,
 }
 
 // Dispatch routes argv (excluding the program name) to a subcommand.
