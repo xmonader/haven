@@ -28,10 +28,12 @@ const MaxSkewSeconds = 300
 const MaxRequestBytes = 256 << 20
 
 // canonicalRequest is the byte string a request signature covers. It binds the
-// method, path, timestamp, body hash, AND a per-request nonce, so a captured
-// signature cannot be replayed against a different body or reused verbatim.
-func canonicalRequest(method, path, unixTime, bodyHashHex, nonce string) []byte {
-	return []byte(fmt.Sprintf("%s\n%s\n%s\n%s\n%s", method, path, unixTime, bodyHashHex, nonce))
+// method, path, timestamp, body hash, a per-request nonce, AND the target host,
+// so a captured signature cannot be replayed against a different body, reused
+// verbatim, or replayed to a DIFFERENT server (the host won't match). The host
+// is the value the client dialed (req.URL.Host) and the server's Host header.
+func canonicalRequest(method, path, unixTime, bodyHashHex, nonce, host string) []byte {
+	return []byte(fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s", method, path, unixTime, bodyHashHex, nonce, host))
 }
 
 // bodyHash is the hex SHA-256 of a request body ("" bodies hash consistently on

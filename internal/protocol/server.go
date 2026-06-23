@@ -32,6 +32,12 @@ type Server struct {
 	// network only).
 	policyRoot string
 
+	// origin, when set, is the host:port this server is reachable at. A signed
+	// request must have been signed for this host (matching the Host header),
+	// which prevents replaying a request captured at one server against another
+	// server that shares the same keyring. Empty = no origin enforcement.
+	origin string
+
 	mu    sync.Mutex
 	gen   uint64                // bumped on every ref change
 	cache map[string]reachEntry // actor -> reachable object set
@@ -102,8 +108,14 @@ func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, bod
 	if nonce == "" {
 		return "", body, false
 	}
+	// Origin binding: when an operator pins an origin (for keyrings shared across
+	// servers), a request must have been signed for THIS server's host, so a
+	// request captured at one server can't be replayed to another.
+	if s.origin != "" && r.Host != s.origin {
+		return "", body, false
+	}
 	sig, err := hex.DecodeString(sigHex)
-	if err != nil || !ed25519.Verify(pubBytes, canonicalRequest(r.Method, r.URL.Path, ts, bodyHash(body), nonce), sig) {
+	if err != nil || !ed25519.Verify(pubBytes, canonicalRequest(r.Method, r.URL.Path, ts, bodyHash(body), nonce, r.Host), sig) {
 		return "", body, false
 	}
 	if !s.acceptNonce(nonce) {
@@ -232,6 +244,11 @@ func (s *Server) verifyIncomingPolicy(head string, _ *policy.Policy) error {
 // (bootstrap) policy must match. With no pin, an un-bootstrapped server accepts
 // the first valid policy pushed to it (open bootstrap).
 func (s *Server) RequirePolicyRoot(hexKey string) { s.policyRoot = hexKey }
+
+// RequireOrigin pins the host:port a signed request must have been addressed to.
+// Set this when multiple servers share one keyring, so a request captured at one
+// cannot be replayed against another. Empty = no origin enforcement.
+func (s *Server) RequireOrigin(host string) { s.origin = host }
 
 func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")

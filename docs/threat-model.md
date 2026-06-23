@@ -49,6 +49,7 @@ Copying the repo never unlocks secrets. Private keys are never in it.
 | **Hostile takeover of an open server** | `serve --policy-root <hex>` pins the root signing key a first policy must match | `protocol`, `cli/cmd_serve.go` |
 | Request forgery / tampering | per-request ed25519 signature over method+path+time+sha256(body)+nonce | `internal/protocol/auth.go` |
 | Replay (even within skew) | durable `seen_nonces` table keyed on **server** receive time | `protocol.acceptNonce` |
+| Cross-server replay (shared keyring) | signature binds the target host; `serve --origin` rejects requests not addressed to this server | `protocol.authActor`, `auth.go` |
 | Overwrite another reader's secret ciphertext | content-changing rewrites require write access to a ref reaching the secret | `protocol.putObject` |
 | Object-enumeration leak | object fetch is reachability-gated by readable refs | `protocol.reachableSet` |
 | Memory-exhaustion DoS | request bodies capped at `MaxRequestBytes` | `protocol.limitBody` |
@@ -64,16 +65,9 @@ Copying the repo never unlocks secrets. Private keys are never in it.
   not eavesdropping. Run the server behind TLS for confidentiality.
 - **Plaintext history before a file was marked.** Already public by then; a
   history rewrite is required to purge it.
-- **Cross-server replay when keyrings are shared.** The canonical request binds
-  method, path, time, body, and nonce — but **not** the server's host/origin. A
-  captured signed request is therefore replayable against a *different* Haven
-  server that shares the same keyring (until its nonce window passes). Not an
-  issue for the common single-server-per-keyring deployment; if you share one
-  keyring across servers, treat each server's nonce table as independent and
-  prefer per-server keys. *(Tracked follow-up: bind origin into the signature.)*
 - **Scale/availability**: no delta/packfile storage; objects load whole into
-  memory. Unix only (flock). These are robustness/scope limits, not security
-  guarantees.
+  memory. This is a robustness/scope limit, not a security guarantee — fine for
+  source trees, not huge repos or large binaries.
 - **No external audit.** The cryptographic *composition* (not the primitives)
   has not been independently reviewed. See `SECURITY.md`.
 

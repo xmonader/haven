@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"haven/internal/object"
@@ -367,5 +368,39 @@ func TestPinnedPolicyRootGatesBootstrap(t *testing.T) {
 	srv.RequirePolicyRoot(hexA)
 	if err := c.UpdateRef(RefUpdate{Name: policy.Ref, Visibility: ref.Policy, Target: headA}); err != nil {
 		t.Fatalf("a first policy matching the pinned root should be accepted: %v", err)
+	}
+}
+
+// TestOriginEnforcementRejectsForeignHost proves that with a pinned origin, a
+// request whose signed/sent host doesn't match THIS server's origin is rejected
+// (the cross-server replay defense), while a matching origin is accepted.
+func TestOriginEnforcementRejectsForeignHost(t *testing.T) {
+	db, err := store.Open(t.TempDir() + "/t.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	s := object.NewStore(db)
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(pub)
+	if err := policy.Bootstrap(db, s, "admin", pubHex, "age1a", priv); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := NewServer(db, KindTeam)
+	srv.RequireOrigin("someone-else.example:9999") // not the host the client will dial
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	admin := NewClient(ts.URL).WithAuth(pubHex, priv)
+	if err := admin.UpdateRef(RefUpdate{Name: "refs/branches/main", Visibility: ref.Public, Target: "v1"}); err == nil {
+		t.Fatal("request to a server whose pinned origin differs from the dialed host must be rejected")
+	}
+
+	// Pin the origin to the host the client actually dials: now accepted.
+	host := strings.TrimPrefix(ts.URL, "http://")
+	srv.RequireOrigin(host)
+	if err := admin.UpdateRef(RefUpdate{Name: "refs/branches/main", Visibility: ref.Public, Target: "v1"}); err != nil {
+		t.Fatalf("matching origin should be accepted: %v", err)
 	}
 }

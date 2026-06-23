@@ -51,6 +51,17 @@ jobs:
           go test -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out | tail -1
 
+  cross-build:
+    name: cross-compile (windows/arm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: build all release targets
+        run: make dist
+
   fuzz-smoke:
     name: fuzz smoke (parsers)
     runs-on: ubuntu-latest

@@ -33,11 +33,11 @@ tidy:
 # Cross-compiled static release binaries for the platforms we support.
 dist: clean
 	@mkdir -p dist
-	@for osarch in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
-		os=$${osarch%/*}; arch=$${osarch#*/}; \
+	@for osarch in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
+		os=$${osarch%/*}; arch=$${osarch#*/}; ext=""; [ "$$os" = windows ] && ext=".exe"; \
 		echo "building $$os/$$arch"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-			go build -trimpath -ldflags "$(LDFLAGS)" -o dist/$(BIN)-$(VERSION)-$$os-$$arch $(PKG) || exit 1; \
+			go build -trimpath -ldflags "$(LDFLAGS)" -o dist/$(BIN)-$(VERSION)-$$os-$$arch$$ext $(PKG) || exit 1; \
 	done
 	@echo "release binaries in dist/ (version $(VERSION))"
 

@@ -1,15 +1,16 @@
 // Package lock provides an advisory working-copy lock so concurrent mutating
-// operations (commit, checkout, merge) don't corrupt the working tree.
+// operations (commit, checkout, merge) don't corrupt the working tree. The
+// underlying primitive is platform-specific (flock on Unix, LockFileEx on
+// Windows); see lock_unix.go and lock_windows.go.
 package lock
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
-// Lock is a held flock on .haven/wclock.
+// Lock is a held exclusive lock on .haven/wclock.
 type Lock struct {
 	f *os.File
 }
@@ -22,7 +23,7 @@ func Acquire(root string) (*Lock, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockFile(f); err != nil {
 		f.Close()
 		return nil, fmt.Errorf("repository is locked by another haven process")
 	}
@@ -34,6 +35,6 @@ func (l *Lock) Release() error {
 	if l == nil || l.f == nil {
 		return nil
 	}
-	syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	unlockFile(l.f)
 	return l.f.Close()
 }

@@ -56,7 +56,7 @@ func (c *Client) do(method, path string, body []byte, headers map[string]string)
 	if c.Auth != nil {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		nonce := newNonce()
-		sig := ed25519.Sign(c.Auth.Priv, canonicalRequest(method, path, ts, bodyHash(body), nonce))
+		sig := ed25519.Sign(c.Auth.Priv, canonicalRequest(method, path, ts, bodyHash(body), nonce, req.URL.Host))
 		req.Header.Set(HdrPub, c.Auth.Pub)
 		req.Header.Set(HdrTime, ts)
 		req.Header.Set(HdrNonce, nonce)

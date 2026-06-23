@@ -52,6 +52,10 @@ func runServe(args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	origin, err := flagValue(args, "--origin")
+	if err != nil {
+		return err
+	}
 
 	r, _, err := openRepo()
 	if err != nil {
@@ -63,6 +67,10 @@ func runServe(args []string, out, errOut io.Writer) error {
 	if policyRoot != "" {
 		server.RequirePolicyRoot(policyRoot)
 		fmt.Fprintf(out, "pinned policy root %s…\n", short(policyRoot))
+	}
+	if origin != "" {
+		server.RequireOrigin(origin)
+		fmt.Fprintf(out, "enforcing request origin %s\n", origin)
 	}
 	srv := &http.Server{Addr: addr, Handler: logRequests(server.Handler(), out)}
 
