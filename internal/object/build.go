@@ -237,6 +237,55 @@ func (s *Store) MergeBase(a, b string) (string, error) {
 	return "", nil
 }
 
+// Reachable returns the set of all object hashes reachable from a commit:
+// the commit chain, every tree and subtree, and every blob.
+func (s *Store) Reachable(commitHash string) (map[string]bool, error) {
+	objs := map[string]bool{}
+	if commitHash == "" {
+		return objs, nil
+	}
+	commits := []string{commitHash}
+	for len(commits) > 0 {
+		ch := commits[len(commits)-1]
+		commits = commits[:len(commits)-1]
+		if objs[ch] {
+			continue
+		}
+		objs[ch] = true
+		c, err := s.GetCommit(ch)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.collectTree(c.Tree, objs); err != nil {
+			return nil, err
+		}
+		commits = append(commits, c.Parents...)
+	}
+	return objs, nil
+}
+
+func (s *Store) collectTree(treeHash string, objs map[string]bool) error {
+	if treeHash == "" || objs[treeHash] {
+		return nil
+	}
+	objs[treeHash] = true
+	entries, err := s.GetTree(treeHash)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		switch e.Type {
+		case Tree:
+			if err := s.collectTree(e.Hash, objs); err != nil {
+				return err
+			}
+		default:
+			objs[e.Hash] = true
+		}
+	}
+	return nil
+}
+
 // TreeOfCommit returns the root tree hash of a commit, or "" for no commit.
 func (s *Store) TreeOfCommit(commitHash string) (string, error) {
 	if commitHash == "" {
