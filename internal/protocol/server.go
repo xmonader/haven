@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -24,6 +25,12 @@ type Server struct {
 	store   *object.Store
 	kind    string
 	maxBody int64 // request-body cap; defaults to MaxRequestBytes
+
+	// policyRoot, when set, is the hex ed25519 signing key the root of an
+	// incoming FIRST policy must match. It stops an arbitrary client from
+	// claiming an un-bootstrapped server. Empty = open bootstrap (dev / trusted
+	// network only).
+	policyRoot string
 
 	mu    sync.Mutex
 	gen   uint64                // bumped on every ref change
@@ -204,8 +211,27 @@ func (s *Server) verifyIncomingPolicy(head string, _ *policy.Policy) error {
 	if err != nil {
 		return err
 	}
-	return policy.VerifyExtension(s.store, head, curHead)
+	if err := policy.VerifyExtension(s.store, head, curHead); err != nil {
+		return err
+	}
+	// Bootstrap protection: if this server has no policy yet and an operator
+	// pinned an expected root, the first policy's root signing key must match.
+	if curHead == "" && s.policyRoot != "" {
+		root, err := policy.RootSignKey(s.store, head)
+		if err != nil {
+			return err
+		}
+		if root != s.policyRoot {
+			return fmt.Errorf("first policy root %s does not match the pinned --policy-root", root)
+		}
+	}
+	return nil
 }
+
+// RequirePolicyRoot pins the hex ed25519 signing key that the root of a first
+// (bootstrap) policy must match. With no pin, an un-bootstrapped server accepts
+// the first valid policy pushed to it (open bootstrap).
+func (s *Server) RequirePolicyRoot(hexKey string) { s.policyRoot = hexKey }
 
 func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")

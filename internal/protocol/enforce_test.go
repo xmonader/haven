@@ -310,3 +310,62 @@ func TestSecretRewriteRequiresWriteAccess(t *testing.T) {
 		t.Fatal("admin rotation did not propagate")
 	}
 }
+
+// TestPinnedPolicyRootGatesBootstrap proves that an un-bootstrapped server with
+// a pinned --policy-root rejects a first policy whose root signing key doesn't
+// match (the takeover vector), and accepts one that does.
+func TestPinnedPolicyRootGatesBootstrap(t *testing.T) {
+	// Donor repo: a real bootstrapped chain whose root signer is adminA.
+	ddb, err := store.Open(t.TempDir() + "/d.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ddb.Close() })
+	ds := object.NewStore(ddb)
+	pubA, privA, _ := ed25519.GenerateKey(nil)
+	hexA := hex.EncodeToString(pubA)
+	if err := policy.Bootstrap(ddb, ds, "admin", hexA, "age1a", privA); err != nil {
+		t.Fatal(err)
+	}
+	headA, _ := ref.Resolve(ddb, policy.Ref)
+	chainA, _ := policy.ChainHashes(ddb, ds)
+
+	// Fresh server DB: copy the chain objects in, but leave the policy ref unset
+	// (so the server is un-bootstrapped: curHead == "").
+	sdb, err := store.Open(t.TempDir() + "/s.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sdb.Close() })
+	ss := object.NewStore(sdb)
+	for h := range chainA {
+		typ, content, err := ds.Get(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ss.PutRaw(h, typ, content); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := NewServer(sdb, KindTeam)
+	pubB, _, _ := ed25519.GenerateKey(nil)
+	srv.RequirePolicyRoot(hex.EncodeToString(pubB)) // pin a DIFFERENT root
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	// Anonymous client (no policy yet => open) tries to install policy headA.
+	c := NewClient(ts.URL)
+	if err := c.UpdateRef(RefUpdate{Name: policy.Ref, Visibility: ref.Policy, Target: headA}); err == nil {
+		t.Fatal("a first policy whose root doesn't match the pin must be rejected")
+	}
+	if cur, _ := ref.Resolve(sdb, policy.Ref); cur != "" {
+		t.Fatal("rejected policy must not have been installed")
+	}
+
+	// Pin the correct root and retry: now it's accepted.
+	srv.RequirePolicyRoot(hexA)
+	if err := c.UpdateRef(RefUpdate{Name: policy.Ref, Visibility: ref.Policy, Target: headA}); err != nil {
+		t.Fatalf("a first policy matching the pinned root should be accepted: %v", err)
+	}
+}

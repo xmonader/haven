@@ -169,6 +169,31 @@ func VerifyExtension(store *object.Store, newHead, curHead string) error {
 	return nil
 }
 
+// RootSignKey returns the hex ed25519 signing key of the root (v0) policy's
+// signer, walking the chain from head to root. This is the key a clone pins as
+// its trust anchor, and the value a server can require an incoming first policy
+// to match (so an open server can't be claimed by an arbitrary key).
+func RootSignKey(store *object.Store, head string) (string, error) {
+	if head == "" {
+		return "", fmt.Errorf("empty policy head")
+	}
+	var root *Policy
+	h := head
+	for h != "" {
+		p, err := loadObject(store, h)
+		if err != nil {
+			return "", err
+		}
+		root = p
+		h = p.Parent
+	}
+	m, ok := root.Keyring[root.Signer]
+	if !ok {
+		return "", fmt.Errorf("root policy signer %q not in its own keyring", root.Signer)
+	}
+	return m.Sign, nil
+}
+
 // ChainHashes returns every policy object hash in the chain (for gc/fsck).
 func ChainHashes(db *sql.DB, store *object.Store) (map[string]bool, error) {
 	out := map[string]bool{}

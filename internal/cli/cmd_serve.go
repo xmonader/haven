@@ -48,6 +48,10 @@ func runServe(args []string, out, errOut io.Writer) error {
 	if (cert == "") != (key == "") {
 		return fmt.Errorf("--tls-cert and --tls-key must be given together")
 	}
+	policyRoot, err := flagValue(args, "--policy-root")
+	if err != nil {
+		return err
+	}
 
 	r, _, err := openRepo()
 	if err != nil {
@@ -55,7 +59,12 @@ func runServe(args []string, out, errOut io.Writer) error {
 	}
 	defer r.Close()
 
-	srv := &http.Server{Addr: addr, Handler: logRequests(protocol.NewServer(r.DB, kind).Handler(), out)}
+	server := protocol.NewServer(r.DB, kind)
+	if policyRoot != "" {
+		server.RequirePolicyRoot(policyRoot)
+		fmt.Fprintf(out, "pinned policy root %s…\n", short(policyRoot))
+	}
+	srv := &http.Server{Addr: addr, Handler: logRequests(server.Handler(), out)}
 
 	// Shut down cleanly on SIGINT/SIGTERM so in-flight requests finish.
 	stop := make(chan os.Signal, 1)

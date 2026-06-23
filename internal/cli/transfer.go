@@ -13,15 +13,17 @@ import (
 )
 
 // policyParent extracts the parent hash from a serialized policy object,
-// without depending on the policy package's full type.
-func policyParent(content []byte) string {
+// without depending on the policy package's full type. A parse error is
+// returned (not swallowed) so a corrupt policy object aborts the clone rather
+// than silently truncating the policy chain — the chain is the root of trust.
+func policyParent(content []byte) (string, error) {
 	var p struct {
 		Parent string `json:"parent"`
 	}
 	if err := json.Unmarshal(content, &p); err != nil {
-		return ""
+		return "", fmt.Errorf("malformed policy object: %w", err)
 	}
-	return p.Parent
+	return p.Parent, nil
 }
 
 // remoteTrackingRef maps a remote ref name to its local tracking ref.
@@ -123,7 +125,11 @@ func downloadReachable(c *protocol.Client, store *object.Store, target string) e
 				queue = append(queue, e.Hash)
 			}
 		case object.Policy:
-			if parent := policyParent(content); parent != "" {
+			parent, err := policyParent(content)
+			if err != nil {
+				return err
+			}
+			if parent != "" {
 				queue = append(queue, parent)
 			}
 		}
