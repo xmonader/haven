@@ -271,18 +271,19 @@ hv serve   [<addr>]                    # run a haven host
 
 ## 11. Wire Protocol — HTTPS REST
 
-Plain HTTPS, debuggable with curl. Auth is an **Ed25519 signed challenge** (server issues a nonce, client signs, server maps the signing pubkey to an actor via the keyring) — no long-lived secret on the wire.
+Plain HTTP(S), debuggable with curl. Auth is a **per-request Ed25519 signature** (no server round-trip, no long-lived secret on the wire): the client signs the canonical string `method\npath\ntime\nsha256(body)\nnonce` with its signing key; the server maps the signing pubkey to an actor via the keyring, rejects a clock skew beyond ±300s, and rejects a nonce it has already seen (durable `seen_nonces` table) so a captured request can't be replayed even within the window. The body hash binds the signature to the payload, so a tampered body invalidates it. Request bodies are capped (`MaxRequestBytes`) so a client can't exhaust server memory. Run behind TLS for confidentiality — the signature prevents forgery, not eavesdropping.
 
 ```
 GET  /info                  -> repo metadata
 GET  /refs                  -> ref listing, FILTERED to refs the actor can read
 GET  /objects/<hash>        -> raw object bytes, allowed only if reachable from a readable ref
-POST /objects (batch)       -> idempotent upload (ciphertext stays ciphertext; server can't read secrets)
-POST /refs (conditional)    -> atomic ref update; server verifies write/force via policy.Eval
-POST /policy                -> new signed policy version; verifies signature + admin-in-parent + parent linkage
+PUT  /objects/<hash>        -> idempotent upload (ciphertext stays ciphertext; server can't read secrets).
+                               Rewriting a secret's ciphertext requires write access to a ref reaching it.
+POST /refs (conditional)    -> atomic compare-and-swap ref update; server verifies write/force via policy.Eval.
+                               A policy ref update instead verifies the incoming signed chain extends the current one.
 ```
 
-Object fetch is **reachability-gated**: `<hash>` is served only if reachable from a ref the actor can `read`, so restricted code can't leak via raw hash enumeration. A "haven host" is any HTTPS server speaking this; team and personal remotes use the same protocol.
+Object fetch is **reachability-gated**: `<hash>` is served only if reachable from a ref the actor can `read`, so restricted code can't leak via raw hash enumeration. A "haven host" is any HTTP(S) server speaking this; team and personal remotes use the same protocol.
 
 ---
 
@@ -302,6 +303,8 @@ Object fetch is **reachability-gated**: `<hash>` is served only if reachable fro
 
 M7/M8 land after M5 — enforcement is meaningless without the server.
 
+**Status: M0–M8 are implemented and tested**, plus a hardening pass beyond the original plan: body- and nonce-bound request signatures with a durable replay table, atomic compare-and-swap ref updates, at-rest zlib compression, `PRAGMA user_version` schema versioning with a migration runner, a request-body size cap, ref-write-gated secret rewrites, symlink tracking, and the history porcelain below. Linear `rebase`, `cherry-pick`/`revert`, `stash`, and `bisect` (originally out of scope) are built; interactive rebase and octopus merge remain out.
+
 ---
 
 ## 13. Adversarial Review — Failure Modes Designed For
@@ -317,17 +320,22 @@ M7/M8 land after M5 — enforcement is meaningless without the server.
 - **Concurrent `hv commit`** → SQLite tx for objects; `.haven/wclock` (flock) for working-copy ops.
 - **Publishing a haven whose public twin diverged** → refuse, require explicit merge.
 - **Sync conflict (two laptops, same haven)** → v1 refuses, instructs manual merge.
-- **Large files** → stream object bytes, never whole in RAM; ~GB ceiling documented.
+- **Large files** → objects are zlib-compressed at rest (incompressible data stored raw, never enlarged) but still loaded whole into memory per operation; delta/packfile storage and streaming are future work. Fine for source trees, not huge binaries — documented limitation.
+- **Memory-exhaustion DoS** → request bodies are capped at `MaxRequestBytes` before buffering.
+- **Secret lock-out** → a member can read a secret but cannot rewrite its ciphertext to lock others out: a content-changing rewrite requires write access to a ref reaching the secret; identical bytes stay idempotent.
+- **Schema drift across versions** → the database carries `PRAGMA user_version`; migrations run forward on open, and a database newer than the binary is refused rather than mis-read.
 - **Empty repo / first commit / no HEAD** → every command handles gracefully.
 - **Truncated/corrupt SQLite** → `hv fsck` detects; restore from backup, no silent repair.
-- **Filenames** → UTF-8 NFC normalize; tree stores mode; regular+exec in v1, symlinks v2.
+- **Filenames** → UTF-8 NFC normalize; tree stores mode; regular, executable, and symlinks (stored as their target, mode 120000) tracked.
 - **Mid-push network failure** → idempotent upload + conditional ref update; safe to resume.
 
 ---
 
 ## 14. Explicitly Out of Scope (v1)
 
-Hunk-level staging · signed commits (GPG/SSH) · submodules · LFS / large-file offload · interactive rebase · cherry-pick · bisect · subcommand aliases · git interop · GUI/TUI · patch-review flow · multi-admin threshold approval · break-glass escrow · key revocation lists beyond the signed-chain `status` field.
+Hunk-level staging · signed commits (GPG/SSH) · submodules · LFS / large-file offload · delta/packfile storage · interactive rebase · octopus (>2-parent) merge · subcommand aliases · git interop · GUI/TUI · patch-review flow · multi-admin threshold approval · break-glass escrow · key revocation lists beyond the signed-chain `status` field · Windows (`flock`).
+
+(Linear `rebase`, `cherry-pick`/`revert`, `stash`, and `bisect` were originally listed here but are now implemented.)
 
 ---
 

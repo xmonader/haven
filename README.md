@@ -17,7 +17,7 @@ A complete local + networked VCS with a signed-policy ACL and encrypted secrets:
 - **Identity & access:** `key` · `member` · `group` · `grant`/`revoke` · `restrict` · `policy` — a **portable, ed25519-signed policy chain** in the repo is the authorization root. Grants (`read`/`write`/`force`/`grant`/`admin`) are verifiable offline; `restrict` removes public access for need-to-know refs. The server **enforces** it: each request is signed over method+path+time+body+nonce (a captured signature can't be replayed against a different body, nor reused verbatim — the server rejects seen nonces within the skew window), maps the key to a keyring actor, and gates ref listing, object fetch, ref updates, and policy extension.
 - **Secrets:** `secret add`/`ref`/`rotate`/`status` — files matching a mark (`.env`, `*.pem`, … by default) are **encrypted to the ref's current readers on `add`** and decrypted on checkout; `secret ref` / `haven create --secret` encrypt a whole branch's tree at rest; `rotate` re-encrypts to the current readers after a membership change (no new commit) and `status` flags recipient drift. The object store and any server hold only ciphertext.
 
-Hardening: `fsck` · `gc` · working-copy flock. Verified end-to-end — ciphertext at rest, non-recipient lockout, offline policy verification, tamper/history-rewrite rejection, restricted-ref hiding from anonymous clients.
+Hardening: `fsck` · `gc` · working-copy flock; objects are **zlib-compressed at rest**; the database is **schema-versioned** (`PRAGMA user_version`, migration runner, refuses a DB newer than the binary); the server **caps request bodies** (no memory-exhaustion DoS) and **gates secret-ciphertext rewrites** behind ref write access. Verified end-to-end — ciphertext at rest, non-recipient lockout, offline policy verification, tamper/replay/history-rewrite rejection, restricted-ref hiding from anonymous clients.
 
 ---
 
@@ -77,9 +77,18 @@ hv remote add laptop <url> --kind personal
 hv sync laptop                   # carries havens (and branches) to your personal remote only
 ```
 
-> **Designed, not yet built:** `hv group` / `hv restrict` (need-to-know tiers), `hv haven create --secret`
-> (whole-branch encryption at rest), and ref-scoped recipients. Today secrets encrypt to the whole
-> repo keyring; see `docs/design.md` for the full signed-policy model.
+Need-to-know tiers and whole-branch encryption are built too:
+
+```bash
+hv group create deployers && hv group add deployers bob
+hv restrict staging --read deployers   # removes public read on 'staging'
+hv haven create db-rewrite --secret    # whole tree encrypted at rest
+```
+
+Secrets encrypt to a ref's **current readers** (not the whole keyring); see `docs/design.md` for the full signed-policy model.
+
+> **Not yet:** delta/packfile storage (objects are compressed but stored whole), Windows (`flock`),
+> interactive rebase, and octopus (>2-parent) merge. See the limitations in [`docs/userguide.md`](docs/userguide.md).
 
 ---
 
@@ -103,7 +112,7 @@ make test         # run tests
 make lint         # static analysis
 ```
 
-Single static Go binary; SQLite-backed single-file repos (`.haven/haven.db`); SHA-256 objects; `age` (X25519) encryption and Ed25519 signatures.
+Single static Go binary; SQLite-backed single-file repos (`.haven/haven.db`, schema-versioned, objects zlib-compressed at rest); SHA-256 objects; `age` (X25519) encryption and Ed25519 signatures.
 
 ---
 
