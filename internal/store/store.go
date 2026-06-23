@@ -72,7 +72,14 @@ const SchemaVersion = 3
 // migrations transform the database from version N to N+1. migrations[n] is the
 // step that upgrades a v(n) database to v(n+1). The base `schema` above defines
 // v1, so the first entry is migrations[1]: v1 -> v2.
-var migrations = map[int]func(*sql.DB) error{
+// Each migration runs inside the SAME transaction that stamps the new
+// PRAGMA user_version (see migrate), so the content/schema change and the
+// version bump commit or roll back together. This is critical: if they could
+// commit separately, a crash between them could leave a rewritten database
+// stamped at the old version, and re-running the step would corrupt it (e.g.
+// double-encoding every object). Steps must therefore also be idempotent where
+// cheap, as defence in depth.
+var migrations = map[int]func(*sql.Tx) error{
 	1: migrateV2Compress,
 	2: migrateV3CreatedAt,
 }
@@ -83,21 +90,21 @@ var migrations = map[int]func(*sql.DB) error{
 // to 0 (epoch) — they predate this binary and are immediately prune-eligible.
 // Idempotent: if the column is already present (e.g. a re-run upgrade), it does
 // nothing rather than failing on a duplicate column.
-func migrateV3CreatedAt(db *sql.DB) error {
-	has, err := columnExists(db, "objects", "created_at")
+func migrateV3CreatedAt(tx *sql.Tx) error {
+	has, err := columnExists(tx, "objects", "created_at")
 	if err != nil {
 		return err
 	}
 	if has {
 		return nil
 	}
-	_, err = db.Exec(`ALTER TABLE objects ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`)
+	_, err = tx.Exec(`ALTER TABLE objects ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`)
 	return err
 }
 
 // columnExists reports whether table has a column named col.
-func columnExists(db *sql.DB, table, col string) (bool, error) {
-	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+func columnExists(tx *sql.Tx, table, col string) (bool, error) {
+	rows, err := tx.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
 		return false, err
 	}
@@ -118,11 +125,13 @@ func columnExists(db *sql.DB, table, col string) (bool, error) {
 
 // migrateV2Compress re-stores every existing object through the v2 codec
 // (one-byte tag + optional zlib). v1 rows hold bare payloads; rewriting them
-// makes all rows self-describing so Decode works uniformly. The whole repo's
-// objects are buffered once (one-time cost, bounded by repo size) and rewritten
-// in a single transaction so an interrupted upgrade leaves the DB at v1.
-func migrateV2Compress(db *sql.DB) error {
-	rows, err := db.Query(`SELECT hash, content FROM objects`)
+// makes all rows self-describing so Decode works uniformly. It runs inside the
+// caller's transaction (which also bumps user_version), so the rewrite and the
+// version stamp are atomic — there is no window where rewritten content is
+// stamped v1 and re-encoded on a re-run. Rows are buffered and the cursor closed
+// before the updates because a single connection can't read and write at once.
+func migrateV2Compress(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT hash, content FROM objects`)
 	if err != nil {
 		return err
 	}
@@ -144,17 +153,12 @@ func migrateV2Compress(db *sql.DB) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
 	for _, r := range all {
 		if _, err := tx.Exec(`UPDATE objects SET content=? WHERE hash=?`, Encode(r.c), r.h); err != nil {
-			tx.Rollback()
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // Open opens (creating if needed) the SQLite database at path and brings its
@@ -202,13 +206,25 @@ func migrate(db *sql.DB) error {
 		if !ok {
 			return fmt.Errorf("no migration registered for v%d->v%d", v, v+1)
 		}
-		if err := step(db); err != nil {
+		// Run the step and stamp the new version in ONE transaction so they are
+		// atomic: a crash or failed stamp can never leave a migrated database
+		// recorded at the old version (which would corrupt it on a re-run).
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration v%d->v%d: %w", v, v+1, err)
+		}
+		if err := step(tx); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("migrate v%d->v%d: %w", v, v+1, err)
 		}
-		v++
-		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", v)); err != nil {
-			return fmt.Errorf("stamp schema v%d: %w", v, err)
+		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", v+1)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("stamp schema v%d: %w", v+1, err)
 		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration v%d->v%d: %w", v, v+1, err)
+		}
+		v++
 	}
 	return nil
 }

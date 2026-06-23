@@ -130,3 +130,54 @@ func TestMigrateV2RewritesLegacyRows(t *testing.T) {
 		t.Fatal("migrated row does not decode to original payload")
 	}
 }
+
+// TestUserVersionIsTransactional proves the assumption the migration-atomicity
+// fix relies on: PRAGMA user_version set inside a transaction commits/rolls back
+// WITH the transaction. If this driver didn't honour that, the migration step
+// and its version stamp could diverge and corrupt the DB on a re-run.
+func TestUserVersionIsTransactional(t *testing.T) {
+	db, err := Open(t.TempDir() + "/t.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	read := func() int {
+		var v int
+		if err := db.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	start := read()
+
+	// Rollback must revert the version bump.
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec("PRAGMA user_version = 999"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got != start {
+		t.Fatalf("user_version after rollback = %d, want %d (PRAGMA not transactional!)", got, start)
+	}
+
+	// Commit must persist it.
+	tx, err = db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec("PRAGMA user_version = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got != 7 {
+		t.Fatalf("user_version after commit = %d, want 7", got)
+	}
+}
