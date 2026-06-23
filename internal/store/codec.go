@@ -10,9 +10,47 @@ import (
 // Object content is stored with a one-byte codec tag prefix so the storage
 // format can evolve and mixed-codec rows can coexist during/after a migration.
 const (
-	codecRaw  byte = 0 // payload stored verbatim
-	codecZlib byte = 1 // payload zlib-compressed
+	codecRaw   byte = 0 // payload stored verbatim
+	codecZlib  byte = 1 // payload zlib-compressed
+	codecDelta byte = 2 // payload is a delta program against another object
 )
+
+// deltaBaseHexLen is the fixed width of the base-object hash (SHA-256 hex)
+// embedded in a delta envelope.
+const deltaBaseHexLen = 64
+
+// EncodeDelta wraps a delta program as stored content: the delta tag, the
+// fixed-width base hash, then the (further-encoded) delta bytes. The reader
+// fetches the base, applies the delta, and gets back the exact payload — so the
+// object's identity hash is unchanged by being stored as a delta.
+func EncodeDelta(baseHash string, delta []byte) []byte {
+	out := make([]byte, 0, 1+deltaBaseHexLen+len(delta)+1)
+	out = append(out, codecDelta)
+	out = append(out, baseHash...)
+	return append(out, Encode(delta)...)
+}
+
+// DecodeDelta reports whether stored content is a delta envelope and, if so,
+// returns the base hash and the decoded delta program.
+func DecodeDelta(stored []byte) (baseHash string, delta []byte, ok bool, err error) {
+	if len(stored) == 0 || stored[0] != codecDelta {
+		return "", nil, false, nil
+	}
+	if len(stored) < 1+deltaBaseHexLen {
+		return "", nil, true, fmt.Errorf("decode delta: envelope too short")
+	}
+	baseHash = string(stored[1 : 1+deltaBaseHexLen])
+	delta, err = Decode(stored[1+deltaBaseHexLen:])
+	if err != nil {
+		return "", nil, true, fmt.Errorf("decode delta: %w", err)
+	}
+	return baseHash, delta, true, nil
+}
+
+// IsDelta reports whether stored content is a delta envelope, without decoding.
+func IsDelta(stored []byte) bool {
+	return len(stored) > 0 && stored[0] == codecDelta
+}
 
 // Encode prepares object content for storage: a one-byte codec tag followed by
 // the payload, zlib-compressed only when that actually shrinks it. High-entropy

@@ -91,8 +91,21 @@ func (s *Store) PutSecret(hash string, content []byte) error {
 	return nil
 }
 
-// Get returns the type and payload of an object.
+// maxDeltaDepth bounds delta-base chains so a corrupt or maliciously circular
+// store cannot cause unbounded recursion on read. repack only ever creates
+// depth-1 deltas (bases are full objects), so this is a generous safety margin.
+const maxDeltaDepth = 50
+
+// Get returns the type and payload of an object, transparently reconstructing
+// objects stored as deltas against a base.
 func (s *Store) Get(h string) (Type, []byte, error) {
+	return s.get(h, 0)
+}
+
+func (s *Store) get(h string, depth int) (Type, []byte, error) {
+	if depth > maxDeltaDepth {
+		return "", nil, fmt.Errorf("object %s: delta chain exceeds depth %d", h, maxDeltaDepth)
+	}
 	var t string
 	var stored []byte
 	err := s.db.QueryRow(`SELECT type, content FROM objects WHERE hash=?`, h).Scan(&t, &stored)
@@ -102,35 +115,75 @@ func (s *Store) Get(h string) (Type, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	payload, err := store.Decode(stored)
+	payload, err := s.decodeStored(h, stored, depth)
 	if err != nil {
-		return "", nil, fmt.Errorf("object %s: %w", h, err)
+		return "", nil, err
 	}
 	return Type(t), payload, nil
 }
 
-// Each calls fn for every stored object. fn must not retain content.
+// decodeStored turns raw stored bytes into the object payload, resolving a delta
+// envelope by fetching and applying against its base.
+func (s *Store) decodeStored(h string, stored []byte, depth int) ([]byte, error) {
+	baseHash, delta, isDelta, err := store.DecodeDelta(stored)
+	if err != nil {
+		return nil, fmt.Errorf("object %s: %w", h, err)
+	}
+	if !isDelta {
+		payload, err := store.Decode(stored)
+		if err != nil {
+			return nil, fmt.Errorf("object %s: %w", h, err)
+		}
+		return payload, nil
+	}
+	_, base, err := s.get(baseHash, depth+1)
+	if err != nil {
+		return nil, fmt.Errorf("object %s: delta base: %w", h, err)
+	}
+	payload, err := store.ApplyDelta(base, delta)
+	if err != nil {
+		return nil, fmt.Errorf("object %s: %w", h, err)
+	}
+	return payload, nil
+}
+
+// Each calls fn for every stored object with its reconstructed payload. fn must
+// not retain content. Rows are buffered before reconstruction so resolving a
+// delta's base does not run a query against the still-open cursor.
 func (s *Store) Each(fn func(hash string, t Type, content []byte) error) error {
+	type row struct {
+		h, t   string
+		stored []byte
+	}
 	rows, err := s.db.Query(`SELECT hash, type, content FROM objects`)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	var buf []row
 	for rows.Next() {
-		var h, t string
-		var stored []byte
-		if err := rows.Scan(&h, &t, &stored); err != nil {
+		var rw row
+		if err := rows.Scan(&rw.h, &rw.t, &rw.stored); err != nil {
+			rows.Close()
 			return err
 		}
-		content, err := store.Decode(stored)
+		buf = append(buf, rw)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, rw := range buf {
+		content, err := s.decodeStored(rw.h, rw.stored, 0)
 		if err != nil {
-			return fmt.Errorf("object %s: %w", h, err)
+			return err
 		}
-		if err := fn(h, Type(t), content); err != nil {
+		if err := fn(rw.h, Type(rw.t), content); err != nil {
 			return err
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 // AllHashes returns every stored object hash.
@@ -165,4 +218,94 @@ func (s *Store) Has(h string) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// StoreAsDelta rewrites object h to be stored as a delta against baseHash,
+// preserving its hash and logical size. Guarantees:
+//   - It refuses (error) if the base is itself a delta or is h, so read chains
+//     stay at depth 1.
+//   - It reconstructs the envelope byte-for-byte and refuses (error) on any
+//     mismatch, so a delta-encoder bug can never corrupt the store.
+//   - It is a no-op (applied=false) when the delta would not be smaller than the
+//     object's current stored form, so it never bloats the store.
+func (s *Store) StoreAsDelta(h, baseHash string) (applied bool, err error) {
+	if h == baseHash {
+		return false, fmt.Errorf("store-as-delta: object cannot be its own base")
+	}
+	_, payload, err := s.Get(h)
+	if err != nil {
+		return false, err
+	}
+	if isDelta, err := s.isDeltaRow(baseHash); err != nil {
+		return false, err
+	} else if isDelta {
+		return false, fmt.Errorf("store-as-delta: base %s is itself a delta", baseHash)
+	}
+	curSize, err := s.StoredSize(h)
+	if err != nil {
+		return false, err
+	}
+	_, base, err := s.Get(baseHash)
+	if err != nil {
+		return false, fmt.Errorf("store-as-delta: base: %w", err)
+	}
+	envelope := store.EncodeDelta(baseHash, store.MakeDelta(base, payload))
+	if len(envelope) >= curSize {
+		return false, nil // delta buys nothing; leave the object whole
+	}
+
+	// Self-verify before committing: reconstruct from the envelope and demand it
+	// equals the original payload. Never trust the encoder blindly with the store.
+	reconstructed, err := s.decodeStored(h, envelope, 0)
+	if err != nil {
+		return false, fmt.Errorf("store-as-delta: self-check decode: %w", err)
+	}
+	if string(reconstructed) != string(payload) {
+		return false, fmt.Errorf("store-as-delta: self-check mismatch for %s; refusing to rewrite", h)
+	}
+
+	if _, err := s.db.Exec(`UPDATE objects SET content=? WHERE hash=?`, envelope, h); err != nil {
+		return false, fmt.Errorf("store-as-delta %s: %w", h, err)
+	}
+	return true, nil
+}
+
+// DeltaBase returns the base hash if h is stored as a delta, else ok=false.
+func (s *Store) DeltaBase(h string) (string, bool, error) {
+	var stored []byte
+	err := s.db.QueryRow(`SELECT content FROM objects WHERE hash=?`, h).Scan(&stored)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	base, _, ok, err := store.DecodeDelta(stored)
+	return base, ok, err
+}
+
+func (s *Store) isDeltaRow(h string) (bool, error) {
+	var stored []byte
+	err := s.db.QueryRow(`SELECT content FROM objects WHERE hash=?`, h).Scan(&stored)
+	if err == sql.ErrNoRows {
+		return false, fmt.Errorf("object %s: not found", h)
+	}
+	if err != nil {
+		return false, err
+	}
+	return store.IsDelta(stored), nil
+}
+
+// StoredSize returns the number of bytes object h occupies on disk (the encoded
+// content column), as opposed to its logical payload size.
+func (s *Store) StoredSize(h string) (int, error) {
+	var stored []byte
+	err := s.db.QueryRow(`SELECT content FROM objects WHERE hash=?`, h).Scan(&stored)
+	if err == sql.ErrNoRows {
+		return 0, fmt.Errorf("object %s: not found", h)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return len(stored), nil
 }

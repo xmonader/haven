@@ -51,6 +51,24 @@ func runGc(args []string, out, errOut io.Writer) error {
 		reachable[h] = true
 	}
 
+	// Delta storage is invisible to the object graph: a reachable object may be
+	// stored as a delta against a base that nothing else references. That base
+	// must be kept, or deleting it would corrupt the reachable object. (repack
+	// keeps chains at depth 1, so bases are themselves full objects.)
+	reachableNow := make([]string, 0, len(reachable))
+	for h := range reachable {
+		reachableNow = append(reachableNow, h)
+	}
+	for _, h := range reachableNow {
+		base, ok, err := store.DeltaBase(h)
+		if err != nil {
+			return err
+		}
+		if ok {
+			reachable[base] = true
+		}
+	}
+
 	all, err := store.AllHashes()
 	if err != nil {
 		return err

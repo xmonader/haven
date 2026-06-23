@@ -89,3 +89,121 @@ func TestCommitRoundtrip(t *testing.T) {
 		t.Errorf("commit roundtrip:\n got %+v\nwant %+v", got, c)
 	}
 }
+
+// bigBlob builds a realistically-sized source-like payload (delta storage only
+// pays off above the 64-byte base-hash envelope overhead).
+func bigBlob(extra string) []byte {
+	var b []byte
+	for i := 0; i < 300; i++ {
+		b = append(b, []byte("\tresult := compute(input, options, context)\n")...)
+	}
+	return append(b, []byte(extra)...)
+}
+
+func TestStoreAsDeltaRoundtrip(t *testing.T) {
+	s := newTestStore(t)
+	base := bigBlob("")
+	target := bigBlob("\t// one new line in v2\n")
+
+	baseHash, err := s.Put(Blob, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetHash, err := s.Put(Blob, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullSize, _ := s.StoredSize(targetHash)
+
+	applied, err := s.StoreAsDelta(targetHash, baseHash)
+	if err != nil {
+		t.Fatalf("StoreAsDelta: %v", err)
+	}
+	if !applied {
+		t.Fatal("expected delta to apply for a large object with a small edit")
+	}
+
+	// Get must reconstruct the exact original payload and type.
+	typ, got, err := s.Get(targetHash)
+	if err != nil {
+		t.Fatalf("Get after delta: %v", err)
+	}
+	if typ != Blob || string(got) != string(target) {
+		t.Fatalf("reconstructed (%s,%q...), want blob/original", typ, got[:20])
+	}
+
+	// The delta must actually be smaller than the whole object.
+	deltaSize, _ := s.StoredSize(targetHash)
+	if deltaSize >= fullSize {
+		t.Fatalf("delta storage %d not smaller than full %d", deltaSize, fullSize)
+	}
+
+	// DeltaBase must report the base; the base itself is not a delta.
+	b, ok, err := s.DeltaBase(targetHash)
+	if err != nil || !ok || b != baseHash {
+		t.Fatalf("DeltaBase = (%q,%v,%v), want (%s,true,nil)", b, ok, err, baseHash)
+	}
+}
+
+func TestStoreAsDeltaNoBloat(t *testing.T) {
+	s := newTestStore(t)
+	// Tiny, unrelated blobs: a delta cannot beat the envelope overhead, so the
+	// store must leave them whole rather than grow them.
+	bh, _ := s.Put(Blob, []byte("short base"))
+	th, _ := s.Put(Blob, []byte("totally different short content"))
+	applied, err := s.StoreAsDelta(th, bh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied {
+		t.Fatal("delta should not have been applied: it would bloat the object")
+	}
+	if _, ok, _ := s.DeltaBase(th); ok {
+		t.Fatal("object was rewritten as a delta despite no savings")
+	}
+}
+
+func TestStoreAsDeltaRefusesDeltaBase(t *testing.T) {
+	s := newTestStore(t)
+	base := bigBlob("")
+	mid := bigBlob("\t// mid\n")
+	leaf := bigBlob("\t// mid\n\t// leaf\n")
+	bh, _ := s.Put(Blob, base)
+	mh, _ := s.Put(Blob, mid)
+	lh, _ := s.Put(Blob, leaf)
+
+	applied, err := s.StoreAsDelta(mh, bh)
+	if err != nil || !applied {
+		t.Fatalf("first delta: applied=%v err=%v", applied, err)
+	}
+	// mid is now a delta; using it as a base must be refused (keeps chains depth-1).
+	if _, err := s.StoreAsDelta(lh, mh); err == nil {
+		t.Fatal("expected refusal: base is itself a delta")
+	}
+}
+
+func TestEachReconstructsDeltas(t *testing.T) {
+	s := newTestStore(t)
+	base := bigBlob("")
+	target := bigBlob("\t// extra\n")
+	bh, _ := s.Put(Blob, base)
+	th, _ := s.Put(Blob, target)
+	applied, err := s.StoreAsDelta(th, bh)
+	if err != nil || !applied {
+		t.Fatalf("StoreAsDelta: applied=%v err=%v", applied, err)
+	}
+	seen := map[string]string{}
+	err = s.Each(func(h string, typ Type, content []byte) error {
+		seen[h] = string(content)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen[th] != string(target) {
+		t.Fatalf("Each gave wrong delta object content")
+	}
+	if seen[bh] != string(base) {
+		t.Fatalf("Each gave wrong base content")
+	}
+}
