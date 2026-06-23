@@ -29,6 +29,9 @@ var registry = []Command{
 	cmdDiff,
 	cmdRemote,
 	cmdServe,
+	cmdPush,
+	cmdFetch,
+	cmdClone,
 }
 
 // Dispatch routes argv (excluding the program name) to a subcommand.
