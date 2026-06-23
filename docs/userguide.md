@@ -172,6 +172,12 @@ the store, is safe to interrupt or re-run, and leaves secrets and the signed
 policy chain whole. Run it periodically on a long-lived repo; `fsck` afterward
 confirms every object still hashes correctly.
 
+`gc` and `repack` take a non-blocking repo lock, so they refuse to run
+concurrently with each other or with a checkout/merge/rebase. Run them when
+the repo is otherwise quiescent — in particular, don't run `gc` during an
+in-flight `commit`, which (by design, for speed) does not take that lock and
+could have just-written objects swept before its ref update lands.
+
 ---
 
 ## Conflict handling
