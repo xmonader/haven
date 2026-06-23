@@ -33,6 +33,7 @@ var registry = []Command{
 	cmdCherryPick,
 	cmdRevert,
 	cmdRebase,
+	cmdStash,
 	cmdRemote,
 	cmdServe,
 	cmdPush,
