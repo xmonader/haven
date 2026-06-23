@@ -9,6 +9,7 @@ import (
 	"haven/internal/merge"
 	"haven/internal/object"
 	"haven/internal/ref"
+	"haven/internal/repo"
 	"haven/internal/workspace"
 )
 
@@ -47,6 +48,38 @@ func runMerge(args []string, out, errOut io.Writer) error {
 	}
 	if theirs == "" {
 		return fmt.Errorf("%s has no commits", pos[0])
+	}
+	return mergeInto(r, store, theirs, pos[0], out)
+}
+
+// mergeInto merges the commit theirs into the current HEAD ref. label names the
+// source for messages. Shared by merge and pull.
+func mergeInto(r *repo.Repo, store *object.Store, theirs, label string, out io.Writer) error {
+	headRef, err := r.Head()
+	if err != nil {
+		return err
+	}
+	ours, err := ref.Resolve(r.DB, headRef)
+	if err != nil {
+		return err
+	}
+	if ours == "" {
+		// Nothing here yet: adopt theirs wholesale.
+		theirTree, err := store.TreeOfCommit(theirs)
+		if err != nil {
+			return err
+		}
+		if err := workspace.Checkout(r.Root, store, "", theirTree); err != nil {
+			return err
+		}
+		if err := ref.Set(r.DB, headRef, theirs); err != nil {
+			return err
+		}
+		if err := resetStaging(r, store, theirTree); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "set %s to %s (%s)\n", ref.ShortName(headRef), label, theirs[:10])
+		return nil
 	}
 
 	ourTree, err := store.TreeOfCommit(ours)
@@ -124,7 +157,7 @@ func runMerge(args []string, out, errOut io.Writer) error {
 		Author:  name,
 		Email:   email,
 		When:    time.Now().Unix(),
-		Message: fmt.Sprintf("merge %s", pos[0]),
+		Message: fmt.Sprintf("merge %s", label),
 	})
 	if err != nil {
 		return err
@@ -132,6 +165,6 @@ func runMerge(args []string, out, errOut io.Writer) error {
 	if err := ref.Set(r.DB, headRef, commitHash); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "merged %s into %s (%s)\n", pos[0], ref.ShortName(headRef), commitHash[:10])
+	fmt.Fprintf(out, "merged %s into %s (%s)\n", label, ref.ShortName(headRef), commitHash[:10])
 	return nil
 }

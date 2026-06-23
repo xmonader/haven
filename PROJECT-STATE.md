@@ -5,7 +5,8 @@
   **M2** — `internal/diff` (tree diff + LCS unified diff), `internal/workspace/checkout.go` (materialize tree, clean check), branch create/switch/list/delete, `diff`. Shared `switchTo`/`resolveTree`/`workingTree` helpers. Tests + vet green.
   **M3** — havens (private refs via HavenPrefix/Private), `hv publish` with fast-forward-only divergence refusal, `IsAncestor` commit walk. Havens never appear in branch list. Tests + vet green.
   **M4** — `internal/merge` (three-way content merge via `diff.Chunks`, git-style conflict markers; tree merge), `MergeBase` (LCA), `hv merge` (fast-forward, clean 3-way commit, conflict-to-working-tree), exact-content rename detection in diff. Tests + vet green.
-- **Next:** M5 — remotes: HTTP server (`hv serve`), `remote add --kind`, `push`/`pull`/`fetch`/`clone`/`sync`, push refuses private refs.
+  **M5** — `internal/protocol` (HTTP server+client), `internal/remote`, object reachability/transfer; `serve`, `remote`, `push` (refuses private), `fetch`, `pull`, `clone`, `sync` (carries havens to personal remotes). Team server also refuses private refs. Full VCS with remotes — DoD 1-7 demonstrated. Tests + vet green.
+- **Next:** M6 hardening (fsck/gc/locking/perf), then M7 identity/access, M8 secrets.
 - **Blocked:** nothing.
 
 ## Key Decisions
