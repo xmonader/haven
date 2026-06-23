@@ -63,14 +63,14 @@ jobs:
         run: make dist
 
   fuzz-smoke:
-    name: fuzz smoke (parsers)
+    name: fuzz smoke (parsers + delta codec)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-      - name: short fuzz of object parsers
+      - name: short fuzz of every Fuzz target
         run: |
           # One -fuzz target per invocation (Go requires an exact match).
           grep -rn '^func Fuzz' --include='*_test.go' internal | while IFS= read -r line; do
