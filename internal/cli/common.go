@@ -129,7 +129,7 @@ func resolveCommit(r *repo.Repo, spec string) (string, error) {
 	if hash.IsHash(spec) {
 		return spec, nil
 	}
-	for _, name := range []string{spec, ref.BranchPrefix + spec, ref.HavenPrefix + spec} {
+	for _, name := range []string{spec, ref.BranchPrefix + spec, ref.HavenPrefix + spec, ref.TagPrefix + spec} {
 		if rf, err := ref.Get(r.DB, name); err == nil {
 			return rf.Target, nil
 		}
@@ -199,6 +199,20 @@ func workingTree(r *repo.Repo, store *object.Store) (string, error) {
 		files[path] = object.FileEntry{Hash: h, Mode: fe.Mode, Type: object.Blob}
 	}
 	return object.BuildTree(store, files)
+}
+
+// relPath converts a CLI path argument to a forward-slash path relative to the
+// repository root.
+func relPath(root, arg string) (string, error) {
+	abs, err := filepath.Abs(arg)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 // resetStaging makes the staging area mirror a tree exactly.

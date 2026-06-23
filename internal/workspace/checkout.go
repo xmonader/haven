@@ -40,37 +40,40 @@ func Checkout(root string, store *object.Store, oldTree, newTree string, id *ide
 
 	// Write the new tree's files.
 	for path, fe := range newFiles {
-		_, stored, err := store.Get(fe.Hash)
-		if err != nil {
-			return err
-		}
-		content := stored
-		if fe.Type == object.Secret {
-			content = decryptOrLock(stored, id)
-		}
-		full := filepath.Join(root, filepath.FromSlash(path))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return err
-		}
-		if fe.Mode == object.ModeSymlink {
-			// Replace any existing entry, then recreate the link to its target.
-			if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-			if err := os.Symlink(string(content), full); err != nil {
-				return err
-			}
-			continue
-		}
-		mode := os.FileMode(0o644)
-		if fe.Mode == object.ModeExec {
-			mode = 0o755
-		}
-		if err := os.WriteFile(full, content, mode); err != nil {
+		if err := WriteEntry(root, store, path, fe, id); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// WriteEntry materializes one tree entry into the working tree: secrets are
+// decrypted (or written as a locked notice for non-recipients) and symlinks are
+// recreated as links rather than regular files.
+func WriteEntry(root string, store *object.Store, path string, fe object.FileEntry, id *identity.Identity) error {
+	_, stored, err := store.Get(fe.Hash)
+	if err != nil {
+		return err
+	}
+	content := stored
+	if fe.Type == object.Secret {
+		content = decryptOrLock(stored, id)
+	}
+	full := filepath.Join(root, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return err
+	}
+	if fe.Mode == object.ModeSymlink {
+		if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return os.Symlink(string(content), full)
+	}
+	mode := os.FileMode(0o644)
+	if fe.Mode == object.ModeExec {
+		mode = 0o755
+	}
+	return os.WriteFile(full, content, mode)
 }
 
 // decryptOrLock returns the plaintext if id can decrypt the ciphertext,

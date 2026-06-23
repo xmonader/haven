@@ -21,6 +21,7 @@ const (
 const (
 	BranchPrefix = "refs/branches/"
 	HavenPrefix  = "refs/havens/"
+	TagPrefix    = "refs/tags/"
 )
 
 // Ref is a named pointer to a commit.
