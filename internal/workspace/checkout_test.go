@@ -149,3 +149,59 @@ func TestAtomicWriteNoTempLeak(t *testing.T) {
 		t.Fatalf("atomic write leaked temp files: %v", leaks)
 	}
 }
+
+// TestCheckoutAndIsClean covers the materialize + clean-check round trip:
+// a tree with a plaintext file and a secret is checked out for a recipient,
+// reports clean against its own tree, dirty after an edit, and removals are
+// applied when switching trees.
+func TestCheckoutAndIsClean(t *testing.T) {
+	s, alice, _ := newSecretStore(t)
+	blob, _ := s.Put(object.Blob, []byte("package main\n"))
+	sfe := putSecret(t, s, "TOKEN=abc\n", "TOKEN=abc\n", alice)
+	tree, err := object.BuildTree(s, map[string]object.FileEntry{
+		"main.go": {Hash: blob, Mode: "100644", Type: object.Blob},
+		".env":    sfe,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := Checkout(root, s, "", tree, alice); err != nil {
+		t.Fatalf("checkout: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, "main.go")); string(b) != "package main\n" {
+		t.Fatalf("main.go = %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, ".env")); string(b) != "TOKEN=abc\n" {
+		t.Fatalf(".env = %q", b)
+	}
+
+	marks := []string{".env"}
+	clean, err := IsClean(root, s, tree, marks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !clean {
+		t.Fatal("freshly checked-out tree should be clean")
+	}
+
+	// Edit the plaintext file: now dirty.
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if clean, _ := IsClean(root, s, tree, marks); clean {
+		t.Fatal("edited working tree should be dirty")
+	}
+
+	// Switch to a tree without main.go: it must be removed.
+	tree2, err := object.BuildTree(s, map[string]object.FileEntry{".env": sfe})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Checkout(root, s, tree, tree2, alice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "main.go")); !os.IsNotExist(err) {
+		t.Fatal("main.go should have been removed on checkout of a tree without it")
+	}
+}
