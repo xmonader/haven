@@ -1,6 +1,8 @@
 package object
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"haven/internal/store"
@@ -112,5 +114,36 @@ func TestReachableCoversTreeAndParents(t *testing.T) {
 		if !objs[h] {
 			t.Errorf("reachable set missing %s", h)
 		}
+	}
+}
+
+// TestDeepTreeRefused proves the tree walkers reject a tree nested past
+// maxTreeDepth instead of overflowing the stack (a DoS vector: a remote can
+// push such a tree and the server walks it during reachability checks).
+func TestDeepTreeRefused(t *testing.T) {
+	s := newStore(t)
+	parts := make([]string, maxTreeDepth+5)
+	for i := range parts {
+		parts[i] = "a"
+	}
+	deepPath := strings.Join(parts, "/") + "/f"
+	blob, _ := s.Put(Blob, []byte("x"))
+	tree, err := BuildTree(s, map[string]FileEntry{deepPath: {Hash: blob, Mode: ModeFile, Type: Blob}})
+	if err != nil {
+		t.Fatalf("build deep tree: %v", err)
+	}
+	if _, err := FlattenFull(s, tree); !errors.Is(err, errTreeTooDeep) {
+		t.Fatalf("FlattenFull on a too-deep tree = %v, want errTreeTooDeep", err)
+	}
+	if _, err := Flatten(s, tree); !errors.Is(err, errTreeTooDeep) {
+		t.Fatalf("Flatten on a too-deep tree = %v, want errTreeTooDeep", err)
+	}
+	// Reachable (server-side path) must also refuse, not crash.
+	commit, err := s.PutCommit(CommitObj{Tree: tree, Author: "x", Email: "x@e", Message: "deep"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Reachable(commit); !errors.Is(err, errTreeTooDeep) {
+		t.Fatalf("Reachable on a too-deep tree = %v, want errTreeTooDeep", err)
 	}
 }

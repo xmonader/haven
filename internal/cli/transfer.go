@@ -89,13 +89,22 @@ func downloadReachable(c *protocol.Client, store *object.Store, target string) e
 			return err
 		}
 		// Secret objects are addressed by plaintext hash; store under the given
-		// hash without recomputing (we hold only ciphertext).
+		// hash without recomputing (we hold only ciphertext). Their integrity is
+		// checked at decrypt time (plaintext must hash to this id).
 		if typ == object.Secret {
 			if err := store.PutRaw(h, typ, content); err != nil {
 				return err
 			}
-		} else if _, err := store.Put(typ, content); err != nil {
-			return err
+		} else {
+			// Verify the server returned the object we asked for: Put stores under
+			// the recomputed hash, so a mismatch means the content doesn't match h.
+			got, err := store.Put(typ, content)
+			if err != nil {
+				return err
+			}
+			if got != h {
+				return fmt.Errorf("object %s: server returned content hashing to %s", h, got)
+			}
 		}
 		switch typ {
 		case object.Commit:

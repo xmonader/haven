@@ -1,9 +1,19 @@
 package object
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
+
+// maxTreeDepth bounds how deeply nested a tree may be when walked. Real source
+// trees are nowhere near this; the limit exists so a maliciously or corruptly
+// deep tree cannot exhaust the stack and crash the process (a remote can push
+// such a tree, and the server walks it during reachability checks).
+const maxTreeDepth = 256
+
+// errTreeTooDeep is returned when a tree walk exceeds maxTreeDepth.
+var errTreeTooDeep = fmt.Errorf("tree nesting exceeds %d levels: refusing (possible malicious or corrupt tree)", maxTreeDepth)
 
 // FileEntry describes a file to place in a tree.
 type FileEntry struct {
@@ -73,7 +83,7 @@ func Flatten(s *Store, treeHash string) (map[string]string, error) {
 	if treeHash == "" {
 		return out, nil
 	}
-	if err := flatten(s, treeHash, "", out); err != nil {
+	if err := flatten(s, treeHash, "", out, 0); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -86,13 +96,16 @@ func FlattenFull(s *Store, treeHash string) (map[string]FileEntry, error) {
 	if treeHash == "" {
 		return out, nil
 	}
-	if err := flattenFull(s, treeHash, "", out); err != nil {
+	if err := flattenFull(s, treeHash, "", out, 0); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func flattenFull(s *Store, treeHash, prefix string, out map[string]FileEntry) error {
+func flattenFull(s *Store, treeHash, prefix string, out map[string]FileEntry, depth int) error {
+	if depth > maxTreeDepth {
+		return errTreeTooDeep
+	}
 	entries, err := s.GetTree(treeHash)
 	if err != nil {
 		return err
@@ -100,7 +113,7 @@ func flattenFull(s *Store, treeHash, prefix string, out map[string]FileEntry) er
 	for _, e := range entries {
 		switch e.Type {
 		case Tree:
-			if err := flattenFull(s, e.Hash, prefix+e.Name+"/", out); err != nil {
+			if err := flattenFull(s, e.Hash, prefix+e.Name+"/", out, depth+1); err != nil {
 				return err
 			}
 		default: // Blob or Secret: a leaf
@@ -110,7 +123,10 @@ func flattenFull(s *Store, treeHash, prefix string, out map[string]FileEntry) er
 	return nil
 }
 
-func flatten(s *Store, treeHash, prefix string, out map[string]string) error {
+func flatten(s *Store, treeHash, prefix string, out map[string]string, depth int) error {
+	if depth > maxTreeDepth {
+		return errTreeTooDeep
+	}
 	entries, err := s.GetTree(treeHash)
 	if err != nil {
 		return err
@@ -118,7 +134,7 @@ func flatten(s *Store, treeHash, prefix string, out map[string]string) error {
 	for _, e := range entries {
 		switch e.Type {
 		case Tree:
-			if err := flatten(s, e.Hash, prefix+e.Name+"/", out); err != nil {
+			if err := flatten(s, e.Hash, prefix+e.Name+"/", out, depth+1); err != nil {
 				return err
 			}
 		default: // Blob or Secret: a leaf
@@ -256,7 +272,7 @@ func (s *Store) Reachable(commitHash string) (map[string]bool, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := s.collectTree(c.Tree, objs); err != nil {
+		if err := s.collectTree(c.Tree, objs, 0); err != nil {
 			return nil, err
 		}
 		commits = append(commits, c.Parents...)
@@ -264,9 +280,12 @@ func (s *Store) Reachable(commitHash string) (map[string]bool, error) {
 	return objs, nil
 }
 
-func (s *Store) collectTree(treeHash string, objs map[string]bool) error {
+func (s *Store) collectTree(treeHash string, objs map[string]bool, depth int) error {
 	if treeHash == "" || objs[treeHash] {
 		return nil
+	}
+	if depth > maxTreeDepth {
+		return errTreeTooDeep
 	}
 	objs[treeHash] = true
 	entries, err := s.GetTree(treeHash)
@@ -276,7 +295,7 @@ func (s *Store) collectTree(treeHash string, objs map[string]bool) error {
 	for _, e := range entries {
 		switch e.Type {
 		case Tree:
-			if err := s.collectTree(e.Hash, objs); err != nil {
+			if err := s.collectTree(e.Hash, objs, depth+1); err != nil {
 				return err
 			}
 		default:
