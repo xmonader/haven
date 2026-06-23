@@ -19,9 +19,10 @@ import (
 
 // Server serves a single repository over HTTP.
 type Server struct {
-	db    *sql.DB
-	store *object.Store
-	kind  string
+	db      *sql.DB
+	store   *object.Store
+	kind    string
+	maxBody int64 // request-body cap; defaults to MaxRequestBytes
 
 	mu    sync.Mutex
 	gen   uint64                // bumped on every ref change
@@ -36,7 +37,7 @@ type reachEntry struct {
 
 // NewServer builds a server over an open database.
 func NewServer(db *sql.DB, kind string) *Server {
-	return &Server{db: db, store: object.NewStore(db), kind: kind, cache: map[string]reachEntry{}}
+	return &Server{db: db, store: object.NewStore(db), kind: kind, maxBody: MaxRequestBytes, cache: map[string]reachEntry{}}
 }
 
 // Handler returns the HTTP routes.
@@ -47,7 +48,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /refs", s.postRefs)
 	mux.HandleFunc("GET /objects/{hash}", s.getObject)
 	mux.HandleFunc("PUT /objects/{hash}", s.putObject)
-	return mux
+	return s.limitBody(mux)
+}
+
+// limitBody caps every request body at s.maxBody. MaxBytesReader makes an
+// oversized body fail on read (and closes the connection), so authActor's
+// io.ReadAll returns an error and the request is rejected before it can exhaust
+// memory.
+func (s *Server) limitBody(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, s.maxBody)
+		h.ServeHTTP(w, r)
+	})
 }
 
 // authActor reads and authenticates a request against the policy keyring. It
@@ -56,7 +68,11 @@ func (s *Server) Handler() http.Handler {
 // allowed to proceed. Missing auth headers are anonymous (public access only);
 // a present-but-invalid signature is rejected.
 func (s *Server) authActor(p *policy.Policy, r *http.Request) (actor string, body []byte, ok bool) {
-	body, _ = io.ReadAll(r.Body)
+	var err error
+	body, err = io.ReadAll(r.Body)
+	if err != nil {
+		return "", nil, false // body exceeded MaxRequestBytes (or read failed)
+	}
 	if p == nil {
 		return "", body, true // open repo: no policy, no enforcement
 	}

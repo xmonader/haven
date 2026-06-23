@@ -21,6 +21,12 @@ const (
 // even within the window.
 const MaxSkewSeconds = 300
 
+// MaxRequestBytes caps the size of any request body the server will buffer. The
+// whole body is read into memory (the signature covers it), so without a bound a
+// single client could exhaust server memory. 256 MiB is far above any real
+// object or ref update.
+const MaxRequestBytes = 256 << 20
+
 // canonicalRequest is the byte string a request signature covers. It binds the
 // method, path, timestamp, body hash, AND a per-request nonce, so a captured
 // signature cannot be replayed against a different body or reused verbatim.

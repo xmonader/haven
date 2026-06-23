@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -190,5 +191,46 @@ func TestRestrictedObjectHiddenFromAnon(t *testing.T) {
 	// Admin can.
 	if _, _, err := admin.GetObject(blob); err != nil {
 		t.Fatalf("admin should fetch the object: %v", err)
+	}
+}
+
+// TestBodyCapRejectsOversized proves the server refuses a request body larger
+// than its cap instead of buffering it (a memory-exhaustion DoS vector).
+func TestBodyCapRejectsOversized(t *testing.T) {
+	db, err := store.Open(t.TempDir() + "/t.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	srv := NewServer(db, KindTeam)
+	srv.maxBody = 200 // small cap so we needn't allocate megabytes
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	// Open repo => no policy => anonymous writes are allowed, so a rejection here
+	// can only come from the body cap, not from authorization.
+	big := bytes.NewReader(make([]byte, 4096))
+	resp, err := http.Post(ts.URL+"/refs", "application/json", big)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("oversized body was accepted (status %d); cap not enforced", resp.StatusCode)
+	}
+
+	// A body within the cap on the same endpoint still succeeds.
+	small, _ := json.Marshal(RefUpdate{Name: "refs/branches/main", Target: "abc", Visibility: ref.Public})
+	if len(small) > 200 {
+		t.Fatalf("test setup: small body %d exceeds cap", len(small))
+	}
+	resp2, err := http.Post(ts.URL+"/refs", "application/json", bytes.NewReader(small))
+	if err != nil {
+		t.Fatalf("post small: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("within-cap body rejected: status %d", resp2.StatusCode)
 	}
 }
