@@ -4,7 +4,18 @@
 
 Haven is a from-scratch VCS for code that isn't ready for the public world yet. Private branches, need-to-know sharing, and encrypted credentials are first-class concepts, enforced by storage and cryptography rather than by discipline.
 
-> Status: design complete, implementation in progress. See [`docs/design.md`](docs/design.md).
+> Status: a working VCS with remotes and encrypted secrets. See [`docs/design.md`](docs/design.md).
+
+### What works today
+
+A complete local + networked VCS, plus encrypted secrets:
+
+- **Local:** `init` · `add` · `commit` · `status` · `log` · `diff` · `config`
+- **Branches & havens:** `branch` · `haven` (private) · `publish` · `merge` (three-way, conflict markers)
+- **Remotes:** `serve` · `remote` · `push` (refuses havens) · `fetch` · `pull` · `clone` · `sync` (carries havens between your machines)
+- **Identity & secrets:** `key` · `member` · `secret` — files matching a mark (`.env`, `*.pem`, … by default) are **encrypted to the repo's members on `add`** and decrypted on checkout; the object store and any server hold only ciphertext.
+
+**Still designed, not yet built:** ref-scoped recipients, `group`/`restrict` (need-to-know tiers), and the *signed* policy chain with signed-challenge auth. Today's secrets encrypt to the whole repo keyring, and access enforcement is the structural haven/team-server refusal — not yet the full signed-grant ACL described in the design.
 
 ---
 
@@ -41,9 +52,11 @@ They compose, and the rule that ties them together: **a secret's decryption reci
 ## Quick start
 
 ```bash
-hv init                          # new repo; generates your keypair, you become admin
+hv init                          # new repo (seeds default secret marks: .env, *.pem, …)
+hv key gen                       # generate your encryption identity; you join the repo's members
 echo "DATABASE_URL=…" > .env
-hv add . && hv commit -m "app"   # .env is encrypted automatically (default secret mark)
+hv add . && hv commit -m "app"   # .env is encrypted automatically (matches a default mark)
+hv remote add origin <url> --kind team
 hv push origin main              # the secret travels as ciphertext — safe even on a public remote
 ```
 
@@ -55,20 +68,16 @@ hv haven create scratch          # private branch; hv push will refuse to leak i
 hv publish scratch --as feature  # one-way graduation to a public branch when ready
 ```
 
-Need-to-know sharing:
+Sync a private haven between your own machines:
 
 ```bash
-hv group create deployers && hv group add deployers alice deploybot
-hv branch create staging
-hv restrict staging --read deployers   # only deployers can read the branch or its secrets
-hv secret add config/staging.env       # encrypted to alice + deploybot, nobody else
+hv remote add laptop <url> --kind personal
+hv sync laptop                   # carries havens (and branches) to your personal remote only
 ```
 
-Sensitive work that must never sit in the clear, even on disk:
-
-```bash
-hv haven create --secret db-rewrite    # entire branch encrypted at rest — a stolen laptop yields nothing
-```
+> **Designed, not yet built:** `hv group` / `hv restrict` (need-to-know tiers), `hv haven create --secret`
+> (whole-branch encryption at rest), and ref-scoped recipients. Today secrets encrypt to the whole
+> repo keyring; see `docs/design.md` for the full signed-policy model.
 
 ---
 
