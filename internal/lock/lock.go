@@ -26,7 +26,7 @@ func Acquire(root string) (*Lock, error) {
 		return nil, err
 	}
 	if err := lockFile(f); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("repository is locked by another haven process")
 	}
 	return &Lock{f: f}, nil
