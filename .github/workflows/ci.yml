@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.25.11'
           check-latest: true
       - name: gofmt
         run: |
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.25.11'
       - name: coverage
         run: |
           go test -coverprofile=coverage.out ./...
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.25.11'
       - name: build all release targets
         run: make dist
 
@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.25.11'
       - name: short fuzz of every Fuzz target
         run: |
           # One -fuzz target per invocation (Go requires an exact match).

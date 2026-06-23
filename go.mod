@@ -2,6 +2,8 @@ module haven
 
 go 1.25.4
 
+toolchain go1.25.11
+
 require (
 	filippo.io/age v1.3.1
 	golang.org/x/sys v0.44.0

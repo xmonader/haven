@@ -16,7 +16,7 @@ jobs:
           fetch-depth: 0 # full history so `git describe` sees the tag
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.25.11'
       - name: verify (race)
         run: go test -race -count=1 ./...
       - name: build release binaries
