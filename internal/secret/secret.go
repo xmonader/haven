@@ -4,6 +4,7 @@ package secret
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -12,6 +13,12 @@ import (
 
 	"filippo.io/age"
 )
+
+// ErrNotRecipient is returned by Decrypt when the supplied identities are valid
+// but none is a recipient of the ciphertext. Callers use it to tell "you may
+// not read this" (an access state) apart from "this ciphertext is corrupt" (an
+// error that must not be swallowed).
+var ErrNotRecipient = errors.New("not a recipient of this secret")
 
 // Encrypt encrypts plaintext to the given age recipient strings ("age1...").
 // Any holder of a corresponding private key can decrypt.
@@ -41,11 +48,17 @@ func Encrypt(plaintext []byte, recipients []string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Decrypt decrypts ciphertext using one or more identities. It returns an error
-// if none of the identities is a recipient.
+// Decrypt decrypts ciphertext using one or more identities. It returns
+// ErrNotRecipient (wrapped) when the identities are valid but none is a
+// recipient, and a distinct error for any other failure (corrupt/truncated
+// ciphertext, malformed input) so callers never confuse the two.
 func Decrypt(ciphertext []byte, identities ...age.Identity) ([]byte, error) {
 	r, err := age.Decrypt(bytes.NewReader(ciphertext), identities...)
 	if err != nil {
+		var noMatch *age.NoIdentityMatchError
+		if errors.As(err, &noMatch) {
+			return nil, ErrNotRecipient
+		}
 		return nil, err
 	}
 	return io.ReadAll(r)
