@@ -234,3 +234,79 @@ func TestBodyCapRejectsOversized(t *testing.T) {
 		t.Fatalf("within-cap body rejected: status %d", resp2.StatusCode)
 	}
 }
+
+// TestSecretRewriteRequiresWriteAccess proves a keyring member who can READ a
+// secret (public-read branch) but has NO write access cannot overwrite that
+// secret's ciphertext with different bytes — the lock-out / availability attack
+// on the PutSecret upsert. Identical bytes stay idempotent, and a writer (admin)
+// can rotate.
+func TestSecretRewriteRequiresWriteAccess(t *testing.T) {
+	db, err := store.Open(t.TempDir() + "/t.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	s := object.NewStore(db)
+
+	adminPub, adminPriv, _ := ed25519.GenerateKey(nil)
+	adminPubHex := hex.EncodeToString(adminPub)
+	if err := policy.Bootstrap(db, s, "admin", adminPubHex, "age1admin", adminPriv); err != nil {
+		t.Fatal(err)
+	}
+	// Add bob as an active member with no extra grants: public-read only.
+	bobPub, bobPriv, _ := ed25519.GenerateKey(nil)
+	bobPubHex := hex.EncodeToString(bobPub)
+	if err := policy.Mutate(db, s, "admin", adminPriv, func(p *policy.Policy) error {
+		p.Keyring["bob"] = policy.Member{Sign: bobPubHex, Enc: "age1bob", Status: "active"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A secret object reachable from a public branch.
+	ctA := []byte("ciphertext-A-original")
+	ctB := []byte("ciphertext-B-rewritten")
+	secretHash := "0000000000000000000000000000000000000000000000000000000000000001"
+	if err := s.PutRaw(secretHash, object.Secret, ctA); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := object.BuildTree(s, map[string]object.FileEntry{
+		".env": {Hash: secretHash, Mode: "100644", Type: object.Secret},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := s.PutCommit(object.CommitObj{Tree: tree, Author: "admin", Email: "a@e", Message: "add secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(NewServer(db, KindTeam).Handler())
+	t.Cleanup(srv.Close)
+	admin := NewClient(srv.URL).WithAuth(adminPubHex, adminPriv)
+	bob := NewClient(srv.URL).WithAuth(bobPubHex, bobPriv)
+
+	if err := admin.UpdateRef(RefUpdate{Name: "refs/branches/main", Visibility: ref.Public, Target: commit}); err != nil {
+		t.Fatalf("admin publish: %v", err)
+	}
+
+	// Bob (reader, not writer) must NOT be able to rewrite the ciphertext.
+	if err := bob.PutObject(secretHash, object.Secret, ctB); err == nil {
+		t.Fatal("bob rewrote a secret he has no write access to")
+	}
+	// The stored bytes must be unchanged.
+	if _, got, _ := s.Get(secretHash); !bytes.Equal(got, ctA) {
+		t.Fatal("ciphertext changed despite rejected rewrite")
+	}
+	// Idempotent re-upload of identical bytes is allowed for anyone authenticated.
+	if err := bob.PutObject(secretHash, object.Secret, ctA); err != nil {
+		t.Fatalf("bob's identical re-upload rejected: %v", err)
+	}
+	// Admin (writer of the ref reaching it) can rotate to new ciphertext.
+	if err := admin.PutObject(secretHash, object.Secret, ctB); err != nil {
+		t.Fatalf("admin rotate rejected: %v", err)
+	}
+	if _, got, _ := s.Get(secretHash); !bytes.Equal(got, ctB) {
+		t.Fatal("admin rotation did not propagate")
+	}
+}

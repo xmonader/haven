@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"database/sql"
 	"encoding/hex"
@@ -241,7 +242,21 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if object.Type(typ) == object.Secret {
-		// Upsert: a rotated secret keeps its hash but carries new ciphertext.
+		// A rotated secret keeps its plaintext-derived hash but carries new
+		// ciphertext, so the store upserts. Rewriting EXISTING ciphertext with
+		// DIFFERENT bytes is privileged: require write access to a ref that
+		// reaches the secret, so a member cannot silently re-encrypt a secret
+		// governed by a ref they don't control and lock its readers out.
+		// Identical bytes are an idempotent no-op (the common re-push case) and
+		// are always allowed.
+		if p != nil {
+			if _, existing, err := s.store.Get(hash); err == nil {
+				if !bytes.Equal(existing, content) && !s.writableObject(p, actor, hash) {
+					http.Error(w, "forbidden: cannot rewrite a secret without write access to a ref containing it", http.StatusForbidden)
+					return
+				}
+			}
+		}
 		if err := s.store.PutSecret(hash, content); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -267,12 +282,24 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 // the generation, so a clone fetching N objects walks the graph once, not N
 // times.
 func (s *Server) readableObject(p *policy.Policy, actor, hash string) bool {
-	return s.reachableSet(p, actor)[hash]
+	return s.reachableSet(p, actor, policy.Read)[hash]
 }
 
-func (s *Server) reachableSet(p *policy.Policy, actor string) map[string]bool {
+// writableObject reports whether actor may overwrite an object: it must be
+// reachable from a ref the actor has WRITE access to. Used to gate rewriting a
+// secret's ciphertext, so a member cannot re-encrypt a secret governed by a ref
+// they don't control.
+func (s *Server) writableObject(p *policy.Policy, actor, hash string) bool {
+	return s.reachableSet(p, actor, policy.Write)[hash]
+}
+
+// reachableSet returns the set of objects reachable from every ref on which
+// actor holds `verb` (read or write). Results are cached per (actor, verb) and
+// reused until a ref change bumps the generation.
+func (s *Server) reachableSet(p *policy.Policy, actor, verb string) map[string]bool {
+	key := actor + "\x00" + verb
 	s.mu.Lock()
-	if e, ok := s.cache[actor]; ok && e.gen == s.gen {
+	if e, ok := s.cache[key]; ok && e.gen == s.gen {
 		objs := e.objs
 		s.mu.Unlock()
 		return objs
@@ -281,14 +308,29 @@ func (s *Server) reachableSet(p *policy.Policy, actor string) map[string]bool {
 	s.mu.Unlock()
 
 	objs := map[string]bool{}
-	if chain, err := policy.ChainHashes(s.db, s.store); err == nil {
-		for h := range chain {
-			objs[h] = true
+	// The policy chain is fetchable by anyone (clients must verify it); it is
+	// never writable through the object endpoint, so include it for reads only.
+	if verb == policy.Read {
+		if chain, err := policy.ChainHashes(s.db, s.store); err == nil {
+			for h := range chain {
+				objs[h] = true
+			}
 		}
 	}
 	refs, _ := ref.List(s.db)
 	for _, rf := range refs {
-		if rf.Target == "" || rf.Visibility == ref.Policy || !canRead(p, actor, rf.Name) {
+		if rf.Target == "" || rf.Visibility == ref.Policy {
+			continue
+		}
+		allowed := p == nil
+		if p != nil {
+			if verb == policy.Read {
+				allowed = canRead(p, actor, rf.Name)
+			} else {
+				allowed = p.Eval(actor, verb, rf.Name)
+			}
+		}
+		if !allowed {
 			continue
 		}
 		reach, err := s.store.Reachable(rf.Target)
@@ -301,7 +343,7 @@ func (s *Server) reachableSet(p *policy.Policy, actor string) map[string]bool {
 	}
 
 	s.mu.Lock()
-	s.cache[actor] = reachEntry{gen: gen, objs: objs}
+	s.cache[key] = reachEntry{gen: gen, objs: objs}
 	s.mu.Unlock()
 	return objs
 }
