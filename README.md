@@ -4,7 +4,7 @@
 
 Haven is a from-scratch VCS for code that isn't ready for the public world yet. Private branches, need-to-know sharing, and encrypted credentials are first-class concepts — enforced by storage and cryptography, not by discipline.
 
-🌐 **[Website](https://xmonader.github.io/haven/)** · 📖 **[User guide](docs/userguide.md)** · 🏗️ **[Design](docs/design.md)** · 🛡️ **[Threat model](docs/threat-model.md)**
+🌐 **[Website](https://xmonader.github.io/haven/)** · 📖 **[User guide](docs/userguide.md)** · 📕 **[The Haven Handbook](book/README.md)** · 🏗️ **[Design](docs/design.md)** · 🛡️ **[Threat model](docs/threat-model.md)**
 
 ---
 

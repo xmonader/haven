@@ -11,4 +11,6 @@ The website lives in [`index.html`](index.html) (a zero-dependency static page �
 | [Audit readiness](audit-readiness.md) | Orientation for an external reviewer: controls→code map and attacks to attempt. |
 | [Case study](case-study.md) | The hard engineering parts, key decisions and trade-offs, and war stories. |
 
+Prefer a guided, teaching path over reference docs? Read **[The Haven Handbook](../book/README.md)** — a five-chapter practical book that takes you from the mental model to running a two-person team, with exercises and mini-projects throughout.
+
 Security policy and how to report a vulnerability: [`../SECURITY.md`](../SECURITY.md).
