@@ -9,7 +9,7 @@ import (
 	"haven/internal/store"
 )
 
-func newServer(t *testing.T, kind string) (*Client, *object.Store) {
+func newServer(t testing.TB, kind string) (*Client, *object.Store) {
 	t.Helper()
 	db, err := store.Open(t.TempDir() + "/t.db")
 	if err != nil {
